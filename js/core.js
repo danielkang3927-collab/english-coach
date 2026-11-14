@@ -1,6 +1,6 @@
 "use strict";
-/* 영어 말하기 코치 v6 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js. */
-const BUILD = 6;
+/* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
+const BUILD = 7;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -28,15 +28,18 @@ const stamp = t => { const d = new Date(t), z = n => ("0" + n).slice(-2); return
 const hhmm = t => { const d = new Date(t), z = n => ("0" + n).slice(-2); return z(d.getHours()) + ":" + z(d.getMinutes()); };
 
 /* ---------- 기록 저장소 ---------- */
-const KEYS = { log: "ec6_log", srs: "ec6_srs", my: "ec6_my", set: "ec6_set", day: "ec6_day", miss: "ec6_miss" };
-const DB = { log: [], srs: {}, my: [], set: { minutes: 30, autoSpeak: true }, day: {}, miss: {}, saveFail: false };
+const KEYS = { log: "ec6_log", srs: "ec6_srs", my: "ec6_my", set: "ec6_set", day: "ec6_day", miss: "ec6_miss", gone: "ec6_gone" };
+const DB = { log: [], srs: {}, my: [], set: { minutes: 30, autoSpeak: true }, day: {}, miss: {}, gone: {}, saveFail: false };
 function dbLoad() {
   const rd = (k, d) => { try { const v = JSON.parse(store.get(k) || "null"); return v == null ? d : v; } catch (e) { return d; } };
-  const log = rd(KEYS.log, []), srs = rd(KEYS.srs, {}), my = rd(KEYS.my, []), set = rd(KEYS.set, {}), day = rd(KEYS.day, {}), miss = rd(KEYS.miss, {});
+  const log = rd(KEYS.log, []), srs = rd(KEYS.srs, {}), my = rd(KEYS.my, []), set = rd(KEYS.set, {}), day = rd(KEYS.day, {}), miss = rd(KEYS.miss, {}), gone = rd(KEYS.gone, {});
+  const isMap = v => v && typeof v === "object" && !Array.isArray(v);
+  DB.gone = isMap(gone) ? gone : {};
   DB.log = Array.isArray(log) ? log.filter(r => r && r.id && r.t) : [];
   DB.srs = srs && typeof srs === "object" && !Array.isArray(srs) ? srs : {};
   DB.my = Array.isArray(my) ? my.filter(p => p && p.id && p.en) : [];
-  DB.day = day && typeof day === "object" && !Array.isArray(day) ? day : {};
+  DB.day = {};
+  if (isMap(day)) Object.keys(day).forEach(d => { const r = day[d]; if (!isMap(r) || !/^\d+$/.test(d)) return; const st = isMap(r.st) ? r.st : {}; DB.day[d] = { sec: +r.sec || 0, said: +r.said || 0, st: { phr: +st.phr || 0, dr: +st.dr || 0, talk: +st.talk || 0, retell: +st.retell || 0 } }; });
   DB.miss = miss && typeof miss === "object" && !Array.isArray(miss) ? miss : {};
   DB.set = { minutes: 30, autoSpeak: true };
   if (set && typeof set === "object") { if ([15, 30, 60].indexOf(set.minutes) >= 0) DB.set.minutes = set.minutes; if (set.autoSpeak === false) DB.set.autoSpeak = false; }
@@ -53,7 +56,7 @@ function dbSave(name) {
   return ok;
 }
 function newId() { return now().toString(36) + "-" + Math.random().toString(36).slice(2, 6); }
-function logAdd(rec) { rec.id = newId(); rec.t = now(); DB.log.push(rec); dbSave("log"); return rec; }
+function logAdd(rec) { rec.id = newId(); rec.t = now(); DB.log.push(rec); dbSave("log"); if (typeof syncMark === "function") syncMark(rec.id); return rec; }
 /* 이전 버전(v1~v5) 기록을 옮겨 온다. 원본(ec_history)은 지우지 않는다. */
 function migrate() {
   if (store.get("ec6_migrated")) return 0;
@@ -76,12 +79,19 @@ function migrate() {
 /* ---------- 하루 기록: 연습 시간, 말한 문장 수, 루틴 단계 ---------- */
 const PLAN = () => D.PLAN[DB.set.minutes] || D.PLAN[30];
 function dayRec(d) { d = d == null ? today() : d; return DB.day[d] || (DB.day[d] = { sec: 0, said: 0, st: { phr: 0, dr: 0, talk: 0, retell: 0 } }); }
-let lastTick = 0, lastDaySave = 0;
-function tick() {                                 /* 누르거나 녹음하는 동안만 시간을 센다 (한 번에 최대 90초) */
-  const t = now();
-  if (lastTick && t > lastTick && t - lastTick < 90000) dayRec().sec = Math.round((dayRec().sec + (t - lastTick) / 1000) * 10) / 10;
-  lastTick = t;
-  if (t - lastDaySave > 8000) daySave();
+let lastAct = 0, lastBeat = 0, lastDaySave = 0;
+const IDLE_MS = 5 * 60000;
+function tick() { lastAct = now(); }               /* 화면을 건드렸다는 표시 */
+/* 1초마다 부른다. 앱을 보고 있고 최근 5분 안에 건드렸으면(또는 녹음·채점 중이면) 그 시간을 학습 시간에 더한다. */
+function beat(busy) {
+  const t = now(), dt = lastBeat ? t - lastBeat : 0; lastBeat = t;
+  if (busy) lastAct = t;
+  if (typeof document !== "undefined" && document.hidden) return false;
+  if (!(dt > 0 && dt < 5000) || t - lastAct >= IDLE_MS) return false;   /* 멈춰 있다가 깨어난 긴 틈은 세지 않는다 */
+  const r = dayRec(), was = Math.floor(r.sec / 60);
+  r.sec = Math.round((r.sec + dt / 1000) * 10) / 10;
+  if (t - lastDaySave > 10000) daySave();
+  return Math.floor(r.sec / 60) !== was;
 }
 function daySave() { lastDaySave = now(); dbSave("day"); }
 function dayActive(d) { const r = DB.day[d]; return !!r && (r.sec >= 300 || r.st.phr + r.st.dr + r.st.talk + r.st.retell > 0); }
@@ -416,7 +426,7 @@ function fetchT(url, opt, ms) {
   if (ctl) { opt.signal = ctl.signal; timer = setTimeout(() => { try { ctl.abort(); } catch (e) {} }, ms); }
   return fetch(url, opt).then(r => { if (timer) clearTimeout(timer); return r; }, e => { if (timer) clearTimeout(timer); throw e; });
 }
-/* req: {sys, parts, temp}. status(글): 진행 안내. done(답 객체, 모델 이름). fail(이유). */
+/* req: {sys, parts, temp}. status(글): 진행 안내. done(답 객체, 모델 이름). fail(이유, 종류: net 연결 · quota 한도 · 그 밖). */
 function gCall(req, status, done, fail) {
   if (!G.key) { fail("Gemini 이용 키가 없습니다. 「설정」에서 키를 넣어 주세요."); return; }
   const body = JSON.stringify({
@@ -430,7 +440,7 @@ function gCall(req, status, done, fail) {
     const order = gOrder().filter(gFree).filter(n => tried.indexOf(n) < 0);
     if (!order.length || tried.length >= 6) {
       if (G.onChain) G.onChain();
-      fail(lastNet ? "구글에 연결하지 못했습니다. 인터넷 연결을 확인한 뒤 「다시 보내기」를 눌러 주세요. (" + lastNet + ")" : gStuck()); return;
+      if (lastNet) fail("구글에 연결하지 못했습니다. 인터넷 연결을 확인한 뒤 「다시 보내기」를 눌러 주세요. (" + lastNet + ")", "net"); else fail(gStuck(), "quota"); return;
     }
     const model = order[0]; tried.push(model);
     fetchT(G_BASE + "models/" + encodeURIComponent(model) + ":generateContent", {
@@ -622,27 +632,77 @@ function tagsOf(c, m, words, reading) {
   return uniq((c.gram || c.left || []).map(g => g.tag).concat((c.pron || []).map(p => p.tag), c.delivery || [], deviceTags(m, words, reading)));
 }
 
-/* ---------- 백업: 내보내기와 합쳐서 가져오기 (지우지 않는다) ---------- */
-function backupMake() { return { app: "english-coach", v: BUILD, t: now(), log: DB.log, srs: DB.srs, my: DB.my, day: DB.day, miss: DB.miss, set: { minutes: DB.set.minutes } }; }
-function backupMerge(o) {
-  if (!o || typeof o !== "object" || o.app !== "english-coach") return null;
-  const out = { log: 0, srs: 0, my: 0, day: 0 };
-  const have = {}; DB.log.forEach(r => { have[r.id] = 1; });
-  (Array.isArray(o.log) ? o.log : []).forEach(r => { if (r && r.id && r.t && !have[r.id]) { DB.log.push(r); have[r.id] = 1; out.log++; } });
-  DB.log.sort((x, y) => x.t - y.t);
-  const srs = o.srs && typeof o.srs === "object" ? o.srs : {};
+/* ---------- 합치기 규칙 (백업 가져오기와 구글 저장이 함께 쓴다. 덮어쓰지 않는다) ---------- */
+function stateOut() { return { srs: DB.srs, my: DB.my, gone: DB.gone, day: DB.day, miss: DB.miss }; }
+function canon(v) {                                 /* 열쇠 순서와 상관없이 같은 내용이면 같은 글이 되게 */
+  if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
+  if (v && typeof v === "object") return "{" + Object.keys(v).sort().map(k => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}";
+  return JSON.stringify(v === undefined ? null : v);
+}
+function stateMerge(o) {                            /* o의 내용을 이 기기 기록에 합친다. 바뀐 개수를 돌려준다 */
+  const out = { srs: 0, my: 0, day: 0, miss: 0, gone: 0 }, isMap = v => v && typeof v === "object" && !Array.isArray(v);
+  if (!isMap(o)) return out;
+  /* 구문 상자: 더 많이 본 쪽 */
+  const srs = isMap(o.srs) ? o.srs : {};
   Object.keys(srs).forEach(id => { const a = DB.srs[id], b = srs[id]; if (!b || typeof b.n !== "number") return; if (!a || b.n > a.n || (b.n === a.n && b.l > a.l)) { DB.srs[id] = { b: b.b | 0, d: b.d | 0, n: b.n | 0, k: b.k | 0, l: b.l | 0 }; out.srs++; } });
-  (Array.isArray(o.my) ? o.my : []).forEach(p => { if (p && p.id && p.en && !DB.my.some(q => q.id === p.id || q.en.toLowerCase() === String(p.en).toLowerCase())) { DB.my.push({ id: p.id, en: String(p.en), ko: String(p.ko || ""), t: p.t || now() }); out.my++; } });
-  const day = o.day && typeof o.day === "object" ? o.day : {};
+  /* 내가 뺀 구문 표시: 합집합. 표시된 구문은 어느 기기에서도 뺀다 */
+  const gone = isMap(o.gone) ? o.gone : {};
+  Object.keys(gone).forEach(id => { if (!DB.gone[id]) { DB.gone[id] = +gone[id] || 1; out.gone++; } });
+  /* 내 구문: 합집합 (같은 영어는 하나) */
+  (Array.isArray(o.my) ? o.my : []).forEach(p => { if (p && p.id && p.en && !DB.gone[p.id] && !DB.my.some(q => q.id === p.id || q.en.toLowerCase() === String(p.en).toLowerCase())) { DB.my.push({ id: String(p.id), en: String(p.en), ko: String(p.ko || ""), t: +p.t || now() }); out.my++; } });
+  const before = DB.my.length; DB.my = DB.my.filter(p => !DB.gone[p.id]); if (DB.my.length !== before) out.my++;
+  /* 날짜별 시간·문장 수·단계: 큰 값 */
+  const day = isMap(o.day) ? o.day : {};
   Object.keys(day).forEach(d => {
-    const b = day[d]; if (!b || typeof b !== "object") return; const had = !!DB.day[d], a = dayRec(+d), bs = b.st || {};
-    const before = JSON.stringify(a);
+    const b = day[d]; if (!isMap(b) || !/^\d+$/.test(d)) return; const had = !!DB.day[d], a = dayRec(+d), bs = isMap(b.st) ? b.st : {}, was = JSON.stringify(a);
     a.sec = Math.max(a.sec, +b.sec || 0); a.said = Math.max(a.said, +b.said || 0);
     ["phr", "dr", "talk", "retell"].forEach(k => { a.st[k] = Math.max(a.st[k], +bs[k] || 0); });
-    if (!had || before !== JSON.stringify(a)) out.day++;
+    if (!had || was !== JSON.stringify(a)) out.day++;
   });
-  const miss = o.miss && typeof o.miss === "object" ? o.miss : {};
-  Object.keys(miss).forEach(w => { const b = miss[w]; if (!b || typeof b !== "object") return; const a = DB.miss[w] || (DB.miss[w] = {}); Object.keys(b).forEach(id => { if (!a[id]) a[id] = b[id]; }); });
-  ["log", "srs", "my", "day", "miss"].forEach(dbSave);
+  /* 미션 표시: 나중에 누른 쪽 (양수 = 했음, 음수 = 표시를 풂) */
+  const miss = isMap(o.miss) ? o.miss : {};
+  Object.keys(miss).forEach(w => { const b = miss[w]; if (!isMap(b)) return; const a = DB.miss[w] || (DB.miss[w] = {}); Object.keys(b).forEach(id => { const v = +b[id] || 0; if (v && Math.abs(v) > Math.abs(+a[id] || 0)) { a[id] = v; out.miss++; } }); });
   return out;
 }
+const STATE_KEYS = ["srs", "my", "gone", "day", "miss"];
+
+/* ---------- 백업: 내보내기와 합쳐서 가져오기 (지우지 않는다) ---------- */
+function backupMake() { return { app: "english-coach", v: BUILD, t: now(), log: DB.log, srs: DB.srs, my: DB.my, gone: DB.gone, day: DB.day, miss: DB.miss, set: { minutes: DB.set.minutes } }; }
+function logMerge(list) {                           /* 기록은 번호 기준 합집합 */
+  const have = {}; DB.log.forEach(r => { have[r.id] = 1; });
+  let n = 0;
+  (Array.isArray(list) ? list : []).forEach(r => { if (r && r.id && r.t && !have[r.id]) { DB.log.push(r); have[r.id] = 1; n++; } });
+  if (n) DB.log.sort((x, y) => x.t - y.t);
+  return n;
+}
+function backupMerge(o) {
+  if (!o || typeof o !== "object" || o.app !== "english-coach") return null;
+  const n = logMerge(o.log), st = stateMerge(o);
+  ["log"].concat(STATE_KEYS).forEach(dbSave);
+  if (typeof syncMarkAll === "function") syncMarkAll();
+  return { log: n, srs: st.srs, my: st.my, day: st.day };
+}
+
+/* ---------- 하던 일 보관: 녹음은 크기가 커서 IndexedDB에 둔다 ---------- */
+const IDB = { db: null };
+function idbOpen() {
+  return new Promise(res => {
+    if (IDB.db) { res(IDB.db); return; }
+    try {
+      const rq = indexedDB.open("ec6", 1);
+      rq.onupgradeneeded = () => { try { rq.result.createObjectStore("kv"); } catch (e) {} };
+      rq.onsuccess = () => { IDB.db = rq.result; res(IDB.db); };
+      rq.onerror = () => res(null); rq.onblocked = () => res(null);
+    } catch (e) { res(null); }
+  });
+}
+function idbDo(mode, fn) {
+  return idbOpen().then(db => new Promise(res => {
+    if (!db) { res(null); return; }
+    try { const tx = db.transaction("kv", mode), rq = fn(tx.objectStore("kv")); tx.oncomplete = () => res(rq && rq.result !== undefined ? rq.result : true); tx.onerror = tx.onabort = () => res(null); }
+    catch (e) { res(null); }
+  }));
+}
+const idbSet = (k, v) => idbDo("readwrite", st => st.put(v, k));
+const idbGet = k => idbDo("readonly", st => st.get(k));
+const idbDel = k => idbDo("readwrite", st => st.delete(k));

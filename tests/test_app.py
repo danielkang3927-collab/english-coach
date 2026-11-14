@@ -1,13 +1,14 @@
-"""영어 말하기 코치 v6 자동 점검.
+"""영어 말하기 코치 자동 점검.
 쓰기: python3 tests/test_app.py <저장소 폴더> <캡처 폴더> <가짜 음성 wav> [구간 ...]
-구간: s1 설정 · s2 레벨 테스트 · s3 하루 루틴 · s4 약점/구문/기록/백업 · s5 날짜 · s6 옮겨 오기/저장 · s7 오류 · s8 아이패드"""
-import json, os, sys
+구간: s1 설정 · s2 레벨 테스트 · s3 하루 루틴 · s4 약점/구문/기록/백업 · s5 날짜 · s6 옮겨 오기/저장 · s7 오류 · s8 아이패드
+      · s9 구글 로그인과 기기 사이 이어 쓰기(가짜 서버) · s10 화면이 닫혀도 이어 하기, 학습 시간"""
+import json, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import *
 from playwright.sync_api import sync_playwright
 
 ROOT, OUT, WAV = sys.argv[1], sys.argv[2], sys.argv[3]
-WANT = sys.argv[4:] or ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"]
+WANT = sys.argv[4:] or ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10"]
 BK = os.path.join(OUT, "backup_s3.json")
 t = T()
 ev = lambda pg, js: pg.evaluate(js)
@@ -21,8 +22,8 @@ window.__fakeClip = function(sec, gap){
 };
 window.__fillBatch = function(){ var A=window.__ec.A; A.clips=A.items.map(function(){ return window.__fakeClip(1.2); }); A.i=A.items.length-1; A.phase='shown'; window.__ec.render(); };
 """
-def page(b, viewport=PHONE, init=None, perms=PERMS):
-    return new_page(b, t, viewport, HELP + (init or ""), perms)
+def page(b, viewport=PHONE, init=None, perms=PERMS, fake=None):
+    return new_page(b, t, viewport, HELP + (init or ""), perms, fake)
 def shot(pg, name): pg.screenshot(path=os.path.join(OUT, name + ".png"), full_page=True)
 def view(pg, name): pg.screenshot(path=os.path.join(OUT, name + ".png"))
 def calls(pg, mode=None): return ev(pg, "window.__calls.filter(c => c.kind==='gen'" + (" && c.mode==='%s'" % mode if mode else "") + ").map(c => ({model:c.model, mode:c.mode, audio:c.audio, bytes:c.bytes, temp:c.temp, plan:c.plan, mime:c.mime, json:c.json, key:c.key}))")
@@ -418,7 +419,7 @@ def s4(b):
     t.check("s4 백업 글 복사: 이 앱 표시, 키 없음", o["app"] == "english-coach" and len(o["log"]) == ev(pg, "window.__ec.DB.log.length") and "AIza" not in clip and "gkey" not in clip)
     with pg.expect_download() as dl: click(pg, "bkDown")
     path = dl.value.path(); body = open(path, encoding="utf-8").read()
-    t.check("s4 백업 파일 받기", dl.value.suggested_filename.startswith("english-coach-backup-") and json.loads(body)["v"] == 6 and "AIza" not in body and "백업 파일을 내려받았습니다" in text(pg))
+    t.check("s4 백업 파일 받기", dl.value.suggested_filename.startswith("english-coach-backup-") and json.loads(body)["v"] == ev(pg, "BUILD") and "AIza" not in body and "백업 파일을 내려받았습니다" in text(pg))
     # 파일로 가져오기 (다른 빈 기기)
     ctx2, pg2, errs2 = page(b); click(pg2, "tab", "rec")
     pg2.set_input_files("#ecBkFile", path); pg2.wait_for_function("window.__ec.DB.log.length > 0", timeout=8000)
@@ -491,7 +492,9 @@ def s5(b):
     t.check("s5 지난 주 미션 표시는 남아 있음", ev(pg, "!!window.__ec.DB.miss[%d]['%s']" % (w, ids[1])))
     ev(pg, "DB.log.push({id:'tt', t: Date.now()+window.__ec.Clock.shift-8*86400000, k:'test', score:61, lv:'B1', parts:{}, tasks:[], tags:[]}); DB.log.sort(function(a,b){ return a.t-b.t; }); window.__ec.go('home')")
     t.check("s5 테스트한 지 일주일이 넘으면 다시 볼 때라고 안내", "마지막 테스트 8일 전 — 다시 볼 때입니다" in text(pg))
-    t.check("s5 시간 세기: 누르는 동안만, 한 번에 최대 90초", ev(pg, "(function(){ var r=dayRec(); r.sec=0; lastTick=0; tick(); lastTick-=30000; tick(); var a=r.sec; lastTick-=200000; tick(); return [Math.round(a), Math.round(r.sec)]; })()") == [30, 30])
+    t.check("s5 학습 시간: 보고 있는 동안 1초씩, 5분 넘게 안 건드리면 멈춤, 녹음·채점 중에는 계속, 멈췄다 깨어난 긴 틈은 안 셈",
+            ev(pg, "(function(){ var r=dayRec(), o=[]; r.sec=0; lastAct=now(); lastBeat=now()-1000; beat(false); o.push(r.sec); lastAct=now()-6*60000; lastBeat=now()-1000; beat(false); o.push(r.sec); lastBeat=now()-1000; beat(true); o.push(r.sec); lastAct=now(); lastBeat=now()-60000; beat(false); o.push(r.sec); return o.map(Math.round); })()") == [1, 1, 2, 2])
+    t.check("s5 학습 시간: 다른 화면에 가 있으면 안 셈", ev(pg, "(function(){ var r=dayRec(); r.sec=0; Object.defineProperty(document,'hidden',{get:function(){return true;},configurable:true}); lastAct=now(); lastBeat=now()-1000; beat(true); var a=r.sec; delete document.hidden; return a; })()") == 0)
     t.check("s5 끝까지 오류 없음", not errs, errs); ctx.close()
 
 V5 = """
@@ -661,6 +664,267 @@ def s8(b):
         if not ev(pg, "document.documentElement.scrollWidth <= window.innerWidth"): wide.append(tab)
     t.check("s8 휴대폰 크기에서 가로 넘침 없음", wide == [], wide)
     view(pg, "p22_phone_view"); ctx.close()
+
+
+SEND_TALK = "(function(){ var A=window.__ec.A; A.pend=window.__fakeClip(3); talkSend(); })()"
+def make_data(pg):
+    """구문 8개(절반 맞음)와 대화 한 번"""
+    click(pg, "tab", "home"); click(pg, "routine"); fill_batch_and_send(pg); click(pg, "quit")
+    pg.select_option("#ecScene", "0"); click(pg, "start", "talk"); ev(pg, SEND_TALK)
+    pg.wait_for_function("window.__ec.A.turns.length === 1", timeout=15000); click(pg, "quit")
+def login(pg, fake, acct=None):
+    if acct: fake.account = acct
+    click(pg, "tab", "set"); click(pg, "login")
+    wait_js(pg, "window.__ec && window.__ec.AUTH.uid && !window.__ec.SYNC.busy && (window.__ec.SYNC.last > 0 || window.__ec.SYNC.ask || window.__ec.SYNC.err)")
+def sync(pg):
+    ok = pg.evaluate("(async () => { for (let i = 0; i < 100 && SYNC.busy; i++) await new Promise(r => setTimeout(r, 100)); const ok = await syncNow(); for (let i = 0; i < 100 && SYNC.busy; i++) await new Promise(r => setTimeout(r, 100)); return ok; })()")
+    return ok
+def until(pg, cond, timeout=15000):
+    import time
+    end = time.time() + timeout / 1000
+    while not cond():
+        if time.time() > end: return False
+        pg.wait_for_timeout(150)
+    return True
+ACCT1 = {"sub": "1001", "email": "pastor@example.com", "name": "강동윤"}
+ACCT2 = {"sub": "2002", "email": "other@example.com", "name": "다른 사람"}
+
+def s9(b):
+    print("\n== s9 구글 로그인과 기기 사이 이어 쓰기 ==")
+    fake = FakeGoogle()
+    ctx, pg, errs = page(b); click(pg, "tab", "set")
+    t.check("s9 연결 값 전에는 로그인 단추·점검 단추 없음", not has(pg, "login") and not has(pg, "diag") and "연결 값을 넣는 마지막 단계" in text(pg))
+    click(pg, "tab", "home"); t.check("s9 연결 값 전에는 홈에도 로그인 안내 없음", not has(pg, "login") and not errs, errs); ctx.close()
+
+    # 기기 A: 기록이 있는 채로 처음 로그인
+    ctxA, A, eA = page(b, init=FB_INIT, fake=fake); set_key(A); make_data(A)
+    nA = ev(A, "DB.log.length"); click(A, "tab", "home")
+    t.check("s9 홈에 로그인 안내", has(A, "login") and "기기를 바꿔도 기록이 이어지게" in text(A))
+    login(A, fake)
+    q = fake.auth_requests[-1]
+    t.check("s9 구글로 보내는 값(돌아올 주소는 등록값과 글자까지 같음)", q.get("client_id") == FBCFG["clientId"] and q.get("redirect_uri") == FBCFG["redirect"] and q.get("response_type") == "token id_token" and q.get("scope") == "openid email profile"
+            and bool(re.fullmatch(r"[0-9a-f]{32}", q.get("nonce", ""))) and bool(re.fullmatch(r"[0-9a-f]{32}", q.get("state", ""))) and q.get("prompt") == "select_account", q)
+    ib = fake.idp_requests[-1]
+    t.check("s9 Firebase 로그인 요청", ib["postBody"].startswith("id_token=") and ib["postBody"].endswith("&providerId=google.com") and ib["requestUri"] == FBCFG["redirect"] and ib["returnSecureToken"] is True, ib)
+    t.check("s9 로그인됨: 계정 표시, 주소에 붙은 로그인 값 지움", ev(A, "AUTH.uid") == "U1001" and ev(A, "location.hash") == "" and ev(A, "localStorage.getItem('ec6_oauth')") is None and "pastor@example.com" in text(A) and "로그인했고 기록을 맞췄습니다" in text(A), text(A)[:300])
+    logs = fake.logs("U1001")
+    t.check("s9 이 기기 기록이 모두 올라감", len(logs) == nA and ev(A, "SYNC.un.length") == 0 and "모두 올라가 있음" in text(A), (len(logs), nA))
+    one = list(logs.values())[0]; rec0 = json.loads(one["fields"]["j"]["stringValue"])
+    t.check("s9 올라간 기록의 모양(시각·내용·서버 시각)", one["fields"]["t"]["integerValue"] == str(rec0["t"]) and "timestampValue" in one["fields"]["st"] and rec0["id"] in logs)
+    st = fake.state("U1001"); dk = str(ev(A, "today()"))
+    t.check("s9 구문 상자·날짜별 기록도 올라감", len(st["srs"]) == 8 and st["day"][dk]["st"]["phr"] == 8 and st["day"][dk]["st"]["talk"] == 1, st["day"])
+    t.check("s9 Gemini 키는 서버에 올라가지 않음", "AIzaTESTKEY" not in json.dumps(fake.docs))
+    bad = handlers_ok(A); t.check("s9 설정 화면 처리기", bad == [], bad)
+    shot(A, "p30_login_done")
+
+    # 기기 B: 빈 기기로 로그인 → 서버 기록이 줄거나 바뀌면 안 된다
+    logs_before = json.dumps(fake.logs("U1001"), sort_keys=True); srs_before = json.dumps(fake.state("U1001")["srs"], sort_keys=True); commits = fake.count["commit"]
+    ctxB, B, eB = page(b, init=FB_INIT, fake=fake)
+    t.check("s9 빈 기기", ev(B, "DB.log.length") == 0 and ev(B, "Object.keys(DB.srs).length") == 0)
+    login(B, fake)
+    t.check("s9 빈 기기 로그인: 기록을 모두 받음", ev(B, "DB.log.length") == nA and ev(B, "Object.keys(DB.srs).length") == 8 and ev(B, "dayRec().st.phr") == 8 and ev(B, "dayRec().st.talk") == 1)
+    st2 = fake.state("U1001")
+    t.check("s9 빈 기기 로그인: 서버 기록이 줄거나 바뀌지 않음", json.dumps(fake.logs("U1001"), sort_keys=True) == logs_before and json.dumps(st2["srs"], sort_keys=True) == srs_before and st2["day"][dk]["st"]["phr"] == 8 and fake.count["commit"] == commits and fake.count["delete"] == 0)
+    click(B, "tab", "home"); t.check("s9 받은 기록이 홈에 반영", pg_text_has(B, "최근 2주") and B.locator(".ec-step.done").count() >= 1)
+
+    # B에서 연습 → 저절로 올라가고, A가 받는다
+    set_key(B); click(B, "tab", "home"); click(B, "start", "dr"); ev(B, "window.__mock.batch='all'"); fill_batch_and_send(B)
+    t.check("s9 새 기록은 저절로 올라감", until(B, lambda: len(fake.logs("U1001")) == nA + 1 and ev(B, "SYNC.un.length") == 0))
+    click(A, "tab", "set"); click(A, "syncGo"); wait_js(A, "!SYNC.busy && DB.log.length === %d" % (nA + 1))
+    t.check("s9 다른 기기가 받음", ev(A, "dayRec().st.dr") == 6 and "받은 기록 1개" in text(A), text(A)[-300:])
+
+    # A가 끊긴 동안 만든 기록이 나중에 올라와도 B가 받는다
+    ctxA.route("**/*firestore.googleapis.com/**", lambda route: route.abort())
+    click(A, "tab", "home"); click(A, "start", "dr"); ev(A, "window.__mock.batch='all'"); fill_batch_and_send(A)
+    wait_js(A, "!SYNC.busy && SYNC.err.length > 0", 15000)
+    t.check("s9 연결이 끊기면: 기록은 기기에 남고 '아직 올리지 않은 것'으로 둠", ev(A, "SYNC.un.length") == 1 and ev(A, "DB.log.length") == nA + 2 and "연결하지 못했습니다" in ev(A, "SYNC.err"))
+    click(A, "quit"); click(A, "tab", "home")
+    t.check("s9 홈에 저장 멈춤 안내", "구글 저장이 잠시 멈췄습니다" in A.locator("#ecWarn").inner_text())
+    click(B, "quit"); click(B, "start", "dr"); fill_batch_and_send(B)
+    t.check("s9 B가 그 뒤 기록을 올림", until(B, lambda: len(fake.logs("U1001")) == nA + 2))
+    ctxA.unroute("**/*firestore.googleapis.com/**")
+    okA = sync(A); okB = sync(B)
+    t.check("s9 늦게 올라온 옛 기록도 빠지지 않고 서로 받음", okA and okB and len(fake.logs("U1001")) == nA + 3 and ev(A, "DB.log.length") == nA + 3 and ev(B, "DB.log.length") == nA + 3 and ev(A, "SYNC.un.length") == 0, (len(fake.logs("U1001")), ev(A, "DB.log.length"), ev(B, "DB.log.length")))
+    t.check("s9 받은 뒤 순서는 시간순", ev(B, "DB.log.every((r,i,a) => !i || a[i-1].t <= r.t)") and ev(B, "new Set(DB.log.map(r => r.id)).size === DB.log.length"))
+    click(A, "tab", "home"); t.check("s9 다시 이어지면 멈춤 안내 사라짐", "구글 저장이 잠시 멈췄습니다" not in A.locator("#ecWarn").inner_text())
+
+    # 그사이 다른 기기가 상태를 고친 경우: 다시 합쳐서 저장
+    def other_device_edit(f, path):
+        d = f.docs[path]; x = json.loads(d["fields"]["j"]["stringValue"]); x["srs"]["zz9"] = {"b": 5, "d": 1, "n": 9, "k": 9, "l": 1}
+        d["fields"]["j"]["stringValue"] = json.dumps(x); d["updateTime"] = f.now()
+    click(B, "quit"); click(B, "start", "phr"); fill_batch_and_send(B); fake.before_patch = other_device_edit; sync(B)
+    t.check("s9 그사이 다른 기기가 고쳤으면 덮어쓰지 않고 다시 합침", fake.before_patch is None and "zz9" in fake.state("U1001")["srs"] and ev(B, "!!DB.srs.zz9") and len(fake.state("U1001")["srs"]) == ev(B, "Object.keys(DB.srs).length") == 17, (len(fake.state("U1001")["srs"]), ev(B, "Object.keys(DB.srs).length")))
+    sync(A); t.check("s9 A도 같은 상태로 모임", ev(A, "Object.keys(DB.srs).length") == 17 and ev(A, "DB.log.length") == ev(B, "DB.log.length"))
+
+    # 로그인 표
+    fake.reject_once = True; r0 = fake.count["refresh"]; ok = sync(B)
+    t.check("s9 로그인 표가 거절되면 새로 받아 다시 시도", ok and fake.count["refresh"] == r0 + 1 and ev(B, "SYNC.err") == "")
+    ev(B, "(function(){ AUTH.exp = 0; })()"); r0 = fake.count["refresh"]; ok = sync(B)
+    t.check("s9 표가 만료될 때가 되면 미리 새로 받음", ok and fake.count["refresh"] == r0 + 1)
+
+    # 내 구문과 미션 표시가 기기 사이에 오간다
+    click(A, "tab", "phr"); A.fill("#ecPhEn", "Grace and peace to you."); A.fill("#ecPhKo", "은혜와 평강이 있기를."); click(A, "phAdd"); sync(A); sync(B)
+    has_it = "DB.my.some(p => p.en === 'Grace and peace to you.')"
+    t.check("s9 내 구문이 다른 기기로", ev(B, has_it))
+    pid = ev(B, "DB.my.filter(p => p.en === 'Grace and peace to you.')[0].id")
+    click(B, "quit"); click(B, "tab", "phr"); click(B, "phCat", "my"); click(B, "phDel", pid); click(B, "phDel", pid); sync(B); sync(A)
+    t.check("s9 한 기기에서 뺀 구문은 다른 기기에서도 빠짐", not ev(A, has_it) and pid in fake.state("U1001")["gone"])
+    sync(B); sync(A); t.check("s9 뺀 구문이 되살아나지 않음", not ev(B, has_it) and not ev(A, has_it) and not any(p["id"] == pid for p in fake.state("U1001")["my"]))
+    click(A, "tab", "home"); mid = ev(A, "document.querySelector('.ec-miss').getAttribute('data-arg')"); click(A, "miss", mid); sync(A); sync(B); click(B, "tab", "home")
+    t.check("s9 미션 표시가 다른 기기로", B.locator(".ec-miss.done").count() == 1)
+    click(B, "miss", mid); sync(B); sync(A); click(A, "tab", "home")
+    t.check("s9 미션 표시를 푼 것도 다른 기기로", A.locator(".ec-miss.done").count() == 0)
+
+    # 백업 가져오기 → 가져온 기록도 올라간다
+    ev(A, "backupMerge({app:'english-coach', log:[{id:'imp-1', t: Date.now()-86400000, k:'dr', n:1, ok:1, it:[['g_sva:0',1,90,'','']]}]})")
+    t.check("s9 백업으로 가져온 기록도 올라감", until(A, lambda: "imp-1" in fake.logs("U1001")))
+
+    # 로그아웃
+    nB = ev(B, "DB.log.length"); click(B, "tab", "set"); click(B, "logout")
+    t.check("s9 로그아웃: 기록은 그대로, 로그인 단추가 다시 보임", ev(B, "DB.log.length") == nB and ev(B, "AUTH.uid") == "" and ev(B, "localStorage.getItem('ec6_auth')") is None and has(B, "login") and "기록은 그대로" in text(B))
+    c0 = sum(fake.count.values()); click(B, "tab", "home"); click(B, "start", "dr"); fill_batch_and_send(B); B.wait_for_timeout(5200)
+    t.check("s9 로그아웃 뒤에는 서버에 보내지 않음", sum(fake.count.values()) == c0 and ev(B, "DB.log.length") == nB + 1)
+
+    # 다른 계정으로 로그인
+    n1 = len(fake.logs("U1001")); click(B, "quit"); login(B, fake, ACCT2)
+    t.check("s9 다른 계정이면 합치기 전에 묻는다", ev(B, "!!SYNC.ask") and "다른 계정(pastor@example.com)" in text(B) and "other@example.com" in text(B) and len(fake.logs("U2002")) == 0 and fake.state("U2002") is None, text(B)[:400])
+    click(B, "tab", "home"); t.check("s9 홈에도 계정 확인 안내", "계정 확인이 필요합니다" in text(B))
+    B.reload(); B.wait_for_function("window.__ec"); B.wait_for_timeout(2500)
+    t.check("s9 다시 열어도 물음이 남고, 그동안 아무것도 올리지 않음", ev(B, "!!SYNC.ask") and len(fake.logs("U2002")) == 0)
+    click(B, "tab", "set"); click(B, "logout")
+    t.check("s9 합치지 않고 로그아웃: 새 계정에 아무것도 없음", len(fake.logs("U2002")) == 0 and ev(B, "AUTH.uid") == "" and ev(B, "DB.log.length") == nB + 1)
+    login(B, fake, ACCT2); click(B, "acctMerge"); wait_js(B, "!SYNC.busy && !SYNC.ask && SYNC.last > 0 && SYNC.un.length === 0")
+    t.check("s9 「이 계정에 합치기」를 눌러야 올라감", len(fake.logs("U2002")) == nB + 1 and ev(B, "SYNC.uid") == "U2002" and "이 계정에 합쳤습니다" in text(B))
+    t.check("s9 원래 계정의 서버 기록은 그대로", len(fake.logs("U1001")) == n1)
+
+    # 로그인이 풀린 경우
+    fake.account = ACCT1; fake.revoked = True; ev(A, "(function(){ AUTH.exp = 0; })()"); nAl = ev(A, "DB.log.length"); sync(A); click(A, "tab", "set")
+    t.check("s9 로그인이 풀리면: 알리고 기록은 그대로", ev(A, "AUTH.uid") == "" and "로그인이 풀렸습니다" in text(A) and ev(A, "DB.log.length") == nAl and has(A, "login"))
+    fake.revoked = False; login(A, fake, ACCT1)
+    t.check("s9 다시 로그인하면 묻지 않고 이어짐", ev(A, "AUTH.uid") == "U1001" and ev(A, "SYNC.err") == "" and not ev(A, "!!SYNC.ask") and ev(A, "DB.log.length") == nAl)
+    t.check("s9 A·B 끝까지 오류 없음", not real(eA) and not real(eB), (real(eA), real(eB))); ctxA.close(); ctxB.close()
+
+    # 잘못된 돌아오기
+    ctxC, C, eC = page(b, init=FB_INIT, fake=fake); n_idp = fake.count["idp"]
+    C.goto(URL + "?x=1#state=abc&access_token=AT.1001&id_token=x.y.z"); C.wait_for_function("window.__ec")
+    t.check("s9 누르지 않은 로그인 값이 주소에 붙어 와도 받지 않음", ev(C, "AUTH.uid") == "" and "로그인 확인 값이 맞지 않습니다" in text(C) and fake.count["idp"] == n_idp and ev(C, "location.hash") == "")
+    for flag, msg in [("bad_state", "로그인 확인 값이 맞지 않습니다"), ("bad_nonce", "nonce"), ("oauth_error", "로그인을 취소했습니다")]:
+        setattr(fake, flag, "access_denied" if flag == "oauth_error" else True); n_idp = fake.count["idp"]
+        click(C, "tab", "set"); click(C, "login"); wait_js(C, "window.__ec && window.__ec.U.smsg && window.__ec.U.smsg.err && location.href.indexOf('127.0.0.1') > 0")
+        t.check("s9 %s → 로그인하지 않고 안내" % flag, ev(C, "AUTH.uid") == "" and msg in text(C) and fake.count["idp"] == n_idp and ev(C, "location.hash") == "", text(C)[:200])
+        setattr(fake, flag, None if flag == "oauth_error" else False)
+    fake.provider_off = True; click(C, "login"); wait_js(C, "window.__ec && window.__ec.U.smsg && window.__ec.U.smsg.err && location.href.indexOf('127.0.0.1') > 0")
+    t.check("s9 구글 로그인이 꺼져 있으면 이유를 보여 줌", "OPERATION_NOT_ALLOWED" in text(C) and ev(C, "AUTH.uid") == "")
+    click(C, "diag"); wait_js(C, "window.__ec.U.diag && window.__ec.U.diag.length >= 3 && window.__ec.U.diag[0].text.indexOf('점검 중') < 0")
+    t.check("s9 연결 점검이 꺼진 것을 짚음", any((not x["ok"]) and "꺼져 있습니다" in x["text"] for x in ev(C, "window.__ec.U.diag")))
+    fake.provider_off = False
+    click(C, "diag"); wait_js(C, "window.__ec.U.diag && window.__ec.U.diag.length >= 4 && window.__ec.U.diag.every(x => x.ok)")
+    d = [x["text"] for x in ev(C, "window.__ec.U.diag")]
+    t.check("s9 연결 점검(로그인 전): 로그인 켜짐, 저장소 잠김", any("구글 로그인이 켜져 있습니다" in x for x in d) and any("잠겨 있습니다" in x for x in d), d)
+    fake.reject_id_token = True; login(C, fake, ACCT1)
+    t.check("s9 id_token이 거절되면 access_token으로 로그인", ev(C, "AUTH.uid") == "U1001" and fake.idp_requests[-2]["postBody"].startswith("id_token=") and fake.idp_requests[-1]["postBody"].startswith("access_token="))
+    fake.reject_id_token = False
+    click(C, "diag"); wait_js(C, "window.__ec.U.diag && window.__ec.U.diag.length >= 7")
+    d = ev(C, "window.__ec.U.diag")
+    t.check("s9 연결 점검(로그인 뒤): 내 기록 읽기·쓰기, 남의 기록 막힘", all(x["ok"] for x in d) and any("내 기록 쓰기: 됩니다" in x["text"] for x in d) and any("남의 기록: 읽을 수 없습니다" in x["text"] for x in d), d)
+    shot(C, "p31_diag")
+    click(C, "syncAll"); wait_js(C, "!SYNC.busy && window.__ec.U.smsg && window.__ec.U.smsg.text.indexOf('처음부터 다시 맞췄습니다') >= 0")
+    t.check("s9 처음부터 다시 맞추기", ev(C, "DB.log.length") == len(fake.logs("U1001")) and ev(C, "SYNC.un.length") == 0)
+    t.check("s9 C 끝까지 오류 없음", not real(eC), real(eC)); ctxC.close()
+
+    # 로그인하러 다녀와도 하던 녹음이 남는다
+    ctxD, D, eD = page(b, init=FB_INIT, fake=fake); set_key(D); click(D, "tab", "home"); click(D, "start", "phr")
+    rec(D, 1.2); wait_phase(D, "shown"); click(D, "bNext"); rec(D, 1.2); wait_phase(D, "shown"); click(D, "tab", "home"); click(D, "login")
+    wait_js(D, "window.__ec && window.__ec.AUTH.uid && window.__ec.A && window.__ec.A.type === 'batch'")
+    t.check("s9 로그인하러 다녀와도 하던 훈련과 녹음이 남음", ev(D, "window.__ec.A.clips.length") == 2 and ev(D, "window.__ec.A.i") == 1 and "하던 훈련이 남아 있습니다" in D.locator("#ecWarn").inner_text() and not real(eD), real(eD))
+    ctxD.close()
+
+def s10(b):
+    print("\n== s10 화면이 닫혀도 이어 하기, 학습 시간 ==")
+    ctx, pg, errs = page(b); set_key(pg)
+    def reopen():
+        pg.wait_for_timeout(350); pg.reload(); pg.wait_for_function("window.__ec"); pg.wait_for_timeout(400)
+    warn = lambda: pg.locator("#ecWarn").inner_text()
+    # 묶음 훈련: 녹음 두 개 뒤 화면이 닫혔다 열림
+    click(pg, "tab", "home"); click(pg, "start", "phr"); rec(pg, 1.2); wait_phase(pg, "shown"); click(pg, "bNext"); rec(pg, 1.2); wait_phase(pg, "shown"); reopen()
+    t.check("s10 다시 열면 하던 훈련과 녹음이 남아 있음", ev(pg, "window.__ec.A && window.__ec.A.clips.length") == 2 and ev(pg, "window.__ec.A.i") == 1 and phase(pg) == "shown" and "구문 복습: 하던 훈련이 남아 있습니다" in warn() and ev(pg, "window.__ec.U.tab") == "home")
+    t.check("s10 남은 훈련 표시(점)와 처리기", pg.locator(".ec-dot").count() == 1 and handlers_ok(pg) == [], handlers_ok(pg))
+    view(pg, "p32_restored")
+    click(pg, "flash"); t.check("s10 알림을 누르면 그 자리로", ev(pg, "window.__ec.U.tab") == "train" and "2 / 8" in text(pg) and ev(pg, "window.__ec.U.flash") is None and has(pg, "bNext"))
+    # 보내는 중에 닫힘 → 다시 열면 자동으로 이어서 채점
+    ev(pg, "window.__fillBatch(); window.__mock.plan=['slow']"); click(pg, "bNext"); wait_phase(pg, "sending"); reopen()
+    pg.wait_for_function("window.__ec.A && window.__ec.A.phase === 'done'", timeout=15000)
+    t.check("s10 보내던 중 닫혀도: 다시 열면 자동으로 이어서 채점, 기록은 한 번만", ev(pg, "DB.log.filter(r => r.k === 'phr').length") == 1 and len(calls(pg, "batch")) == 1 and calls(pg, "batch")[0]["audio"] == 8 and "구문 복습 채점이 끝났습니다" in warn())
+    click(pg, "flash"); t.check("s10 끝남 알림을 누르면 결과", pg.locator(".ec-res").count() == 8)
+    reopen(); t.check("s10 끝난 훈련은 다시 살아나지 않음", ev(pg, "window.__ec.A") is None and warn() == "")
+    # 레벨 테스트: 채점 두 번째에서 닫힘
+    click(pg, "tab", "home"); click(pg, "start", "test"); click(pg, "xBegin")
+    ev(pg, "(function(){ var A=window.__ec.A; A.tasks[0].clip=window.__fakeClip(7); A.i=1; A.phase='ask'; pendSave(); })()"); reopen()
+    t.check("s10 레벨 테스트 도중에 닫혀도 녹음과 자리가 남음", ev(pg, "window.__ec.A && window.__ec.A.type") == "test" and ev(pg, "!!window.__ec.A.tasks[0].clip") and ev(pg, "window.__ec.A.i") == 1 and phase(pg) == "ask")
+    ev(pg, "(function(){ var A=window.__ec.A; A.tasks.forEach(function(x){ x.clip=window.__fakeClip(7); }); A.i=3; A.phase='shown'; window.__ec.go('train'); window.__mock.plan=['ok','slow']; })()")
+    click(pg, "xNext"); pg.wait_for_function("window.__ec.A.tasks[0].res", timeout=10000); reopen()
+    pg.wait_for_function("window.__ec.A && window.__ec.A.phase === 'done'", timeout=20000)
+    t.check("s10 레벨 테스트: 끝낸 과제는 다시 보내지 않고 남은 것만 이어서", len(calls(pg, "test")) == 3 and ev(pg, "tests().length") == 1 and "레벨 테스트 채점이 끝났습니다" in warn(), len(calls(pg, "test")))
+    click(pg, "flash"); click(pg, "xHome")
+    # 대화: 보내는 중에 닫힘
+    click(pg, "tab", "train"); pg.select_option("#ecScene", "0"); click(pg, "start", "talk"); ev(pg, SEND_TALK); pg.wait_for_function("window.__ec.A.turns.length === 1", timeout=15000)
+    ev(pg, "window.__mock.plan=['slow']"); ev(pg, SEND_TALK); reopen()
+    pg.wait_for_function("window.__ec.A && window.__ec.A.turns.length === 2", timeout=15000)
+    t.check("s10 대화도 이어짐(앞 대답 포함)", ev(pg, "DB.log.filter(r => r.k === 'talk').length") == 2 and "선생님 답이 왔습니다" in warn() and ev(pg, "window.__ec.A.pend") is None)
+    click(pg, "flash"); t.check("s10 대화로 돌아오면 접힌 앞 대답과 새 피드백", pg.locator(".ec-fold").count() == 1 and pg.locator(".ec-turn").count() == 1)
+    # 앱 안에서 다른 탭으로 옮겨도 계속
+    ev(pg, "window.__mock.plan=['slow']"); ev(pg, SEND_TALK); click(pg, "tab", "weak")
+    pg.wait_for_function("window.__ec.A.turns.length === 3", timeout=15000)
+    t.check("s10 채점 중 다른 탭에 가 있어도 끝나면 알림", ev(pg, "window.__ec.U.tab") == "weak" and "선생님 답이 왔습니다" in warn() and "내 약점 지도" in text(pg))
+    click(pg, "tab", "train"); t.check("s10 훈련 탭으로 직접 돌아와도 알림은 사라짐", warn() == "" and pg.locator(".ec-turn").count() == 1)
+    ev(pg, "window.__mock.plan=['slow-403']"); ev(pg, SEND_TALK); click(pg, "tab", "phr"); wait_phase(pg, "fail")
+    t.check("s10 다른 탭에 있을 때 멈추면 알림", "채점이 멈췄습니다" in warn())
+    click(pg, "flash"); t.check("s10 돌아오면 멈춘 이유와 다시 보내기", "이 키로는 쓸 수 없습니다" in note(pg) and has(pg, "tResend"))
+    click(pg, "tResend"); pg.wait_for_function("window.__ec.A.turns.length === 4", timeout=15000)
+    # 다른 앱에 다녀옴: 연결이 끊겨 멈췄으면 돌아왔을 때 한 번 자동으로 다시 보냄
+    hide = "(function(){ Object.defineProperty(document,'hidden',{get:function(){return true;},configurable:true}); document.dispatchEvent(new Event('visibilitychange')); })()"
+    show = "(function(){ delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); })()"
+    ev(pg, "window.__mock.plan=['net','net','net','net','net','net','net','net']"); ev(pg, SEND_TALK); wait_phase(pg, "fail", 30000)
+    t.check("s10 연결 끊김으로 멈춤", ev(pg, "window.__ec.A.failKind") == "net")
+    ev(pg, "window.__mock.plan=[]"); ev(pg, hide); ev(pg, show); pg.wait_for_function("window.__ec.A.turns.length === 5", timeout=15000)
+    t.check("s10 다른 앱에 다녀오면 자동으로 다시 보냄", True)
+    ev(pg, "window.__mock.plan=['net','net','net','net','net','net','net','net','net','net','net','net','net','net','net','net']"); ev(pg, SEND_TALK); wait_phase(pg, "fail", 30000)
+    n0 = len(calls(pg, "talk")); ev(pg, hide); ev(pg, show); wait_phase(pg, "sending", 3000); wait_phase(pg, "fail", 30000); n1 = len(calls(pg, "talk"))
+    ev(pg, hide); ev(pg, show); pg.wait_for_timeout(1500)
+    t.check("s10 자동 다시 보내기는 한 번만(계속 되풀이하지 않음)", n1 > n0 and len(calls(pg, "talk")) == n1 and phase(pg) == "fail")
+    ev(pg, "window.__mock.plan=[]"); click(pg, "tResend"); pg.wait_for_function("window.__ec.A.turns.length === 6", timeout=15000)
+    # 녹음 중에 다른 화면으로 나감 → 거기까지 담아 보냄
+    ev(pg, "(function(){ var n=0; Object.defineProperty(navigator,'wakeLock',{configurable:true,value:{request:function(){ window.__wl=(window.__wl||0)+1; return Promise.resolve({release:function(){ window.__wlr=(window.__wlr||0)+1; return Promise.resolve(); }, addEventListener:function(){}}); }}}); })()")
+    click(pg, "rec"); pg.wait_for_selector(".ec-btn.rec.on"); pg.wait_for_timeout(1600)
+    t.check("s10 녹음 중에는 화면 꺼짐 방지를 요청", ev(pg, "window.__wl") == 1)
+    ev(pg, hide); pg.wait_for_timeout(200)
+    t.check("s10 녹음 중 나가면 거기까지 담음", ev(pg, "window.__ec.REC.on") is False and ev(pg, "CAP") is None)
+    ev(pg, show); pg.wait_for_function("window.__ec.A.turns.length === 7", timeout=15000)
+    t.check("s10 담은 녹음으로 채점까지", True)
+    pg.wait_for_timeout(300); t.check("s10 끝나면 화면 꺼짐 방지를 풂", ev(pg, "window.__wlr") >= 1)
+    click(pg, "quit"); click(pg, "start", "dr"); click(pg, "rec"); pg.wait_for_selector(".ec-btn.rec.on"); pg.wait_for_timeout(1300); ev(pg, hide); pg.wait_for_timeout(200); ev(pg, show)
+    t.check("s10 훈련 녹음 중 나가도 녹음이 남고 알려 줌", phase(pg) == "shown" and ev(pg, "window.__ec.A.clips.length") == 1 and "거기까지만 담았습니다" in note(pg))
+    # 그만두면 보관하지 않음
+    click(pg, "quit"); click(pg, "quit", "yes"); reopen()
+    t.check("s10 그만둔 훈련은 다시 열어도 없음", ev(pg, "window.__ec.A") is None and warn() == "")
+    # 오래됐거나 깨진 보관은 버림
+    ev(pg, "idbSet('pend', {t: Date.now() - 49*3600000, a: {type:'batch', title:'옛 훈련', kind:'dr', items:[{ref:'g_sva:0',task:'translate',ko:'가',en:'a',focus:'g_sva'}], clips:[{b64:'AAAA', m:{speech:1}}], i:0, phase:'shown'}})"); reopen()
+    t.check("s10 이틀 넘은 보관은 버림", ev(pg, "window.__ec.A") is None and ev(pg, "idbGet('pend')") in (None, True))
+    ev(pg, "idbSet('pend', {t: Date.now(), a: {type:'weird', foo:1}})"); reopen()
+    t.check("s10 알 수 없는 보관은 버리고 오류 없음", ev(pg, "window.__ec.A") is None and not errs, errs)
+    # 학습 시간: 앱을 보고 있는 시간
+    ev(pg, "(function(){ dayRec().sec = 0; })()"); click(pg, "tab", "phr"); pg.wait_for_timeout(3300); s1 = ev(pg, "dayRec().sec")
+    t.check("s10 학습 시간: 화면을 보고 있으면 누르지 않아도 흐름", 2 <= s1 <= 4.6, s1)
+    ev(pg, "(function(){ dayRec().sec = 58.5; })()"); click(pg, "tab", "home"); pg.wait_for_timeout(2600)
+    t.check("s10 홈의 오늘 시간이 저절로 바뀜", pg.locator(".ec-today").inner_text().startswith("1분"), pg.locator(".ec-today").inner_text())
+    ev(pg, hide); a = ev(pg, "dayRec().sec"); pg.wait_for_timeout(2200); bsec = ev(pg, "dayRec().sec"); ev(pg, show)
+    t.check("s10 다른 화면에 가 있는 동안은 세지 않음", bsec == a, (a, bsec))
+    pg.wait_for_timeout(1200); pg.reload(); pg.wait_for_function("window.__ec")
+    t.check("s10 학습 시간이 저장됨", ev(pg, "dayRec().sec") >= 58)
+    t.check("s10 끝까지 오류 없음", not errs, errs); ctx.close()
+
+def pg_text_has(pg, word): return word in text(pg)
+def real(errs): return [e for e in errs if not e.startswith("console: Failed to load resource")]   # 가짜 서버의 4xx 답은 브라우저가 콘솔에 적는다
 
 srv = serve(ROOT)
 with sync_playwright() as p:

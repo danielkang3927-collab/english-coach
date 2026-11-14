@@ -12,13 +12,14 @@
 | `index.html` | 화면 틀과 모양(CSS) |
 | `js/data.js` | 학습 내용: 약점 분류표와 훈련 문장, 어순 원칙, 구문 90개, 대화 장면, 레벨 테스트 문제, 실전 미션 |
 | `js/core.js` | 기록 저장, 간격 반복, 약점 통계, 녹음과 기기 측정, Gemini 연결, 선생님 지시문 |
+| `js/sync.js` | 구글 로그인과 기기 사이 이어 쓰기 (Firebase를 주소로 직접 부름) |
 | `js/app.js` | 화면과 훈련 흐름 |
-| `tests/` | 자동 점검 (가짜 마이크, 가짜 Gemini 응답) |
+| `tests/` | 자동 점검 (가짜 마이크, 가짜 Gemini 응답, 가짜 구글·Firebase 서버) |
 
 ## 자동 점검
 
 ```
-python3 tests/test_app.py <저장소 폴더> <캡처 저장 폴더> tests/fake_speech.wav [s1 … s8]
+python3 tests/test_app.py <저장소 폴더> <캡처 저장 폴더> tests/fake_speech.wav [s1 … s10]
 ```
 
 휴대폰(390×844)과 아이패드(820×1180) 크기에서 모든 버튼을 눌러 보고, 기록 합치기와 빈 기기에서 가져오기까지 확인한다.

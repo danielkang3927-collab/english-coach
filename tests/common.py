@@ -81,6 +81,7 @@ MOCK = r"""
     var call = {kind:"gen", model:model, mode:mode, audio:audio.length, bytes:audio.map(function(a){ return a.inlineData.data.length; }), mime:audio.length ? audio[0].inlineData.mimeType : "", text:text, sys:body.systemInstruction.parts[0].text, temp:body.generationConfig.temperature, json:body.generationConfig.responseMimeType, key:opt.headers["x-goog-api-key"]};
     window.__calls.push(call);
     var plan = M.plan.length ? M.plan.shift() : "ok"; call.plan = plan;
+    if(/^slow-/.test(plan)){ var later = plan.slice(5); return new Promise(function(res){ setTimeout(res, 1200); }).then(function(){ M.plan.unshift(later); window.__calls.pop(); return window.fetch(url, opt); }); }
     if(plan === "net") return new Promise(function(_, rej){ setTimeout(function(){ rej(new TypeError("Failed to fetch")); }, 20); });
     if(plan === "429day") return resp(429, {error:{code:429, message:"Quota exceeded for metric: generate_content_free_tier_requests, limit: 20 PerDay", status:"RESOURCE_EXHAUSTED"}});
     if(plan === "429min") return resp(429, {error:{code:429, message:"Quota exceeded per minute", details:[{"@type":"type.googleapis.com/google.rpc.RetryInfo", retryDelay:"21s"}]}});
@@ -110,7 +111,7 @@ class T:
 def sel(act, arg=None):
     return '[data-act="%s"]' % act + ('[data-arg="%s"]' % arg if arg is not None else "")
 def click(pg, act, arg=None, nth=0):
-    pg.locator("#ecMain " + sel(act, arg) + ", .ec-head " + sel(act, arg) + ", #ecNav " + sel(act, arg) + ", .ec-fab " + sel(act, arg)).nth(nth).click()
+    pg.locator(", ".join(box + " " + sel(act, arg) for box in ["#ecMain", ".ec-head", "#ecNav", ".ec-fab", "#ecWarn"])).nth(nth).click()
 def has(pg, act, arg=None): return pg.locator(sel(act, arg)).count() > 0
 def phase(pg): return pg.evaluate("window.__ec.A ? window.__ec.A.phase : null")
 def wait_phase(pg, ph, timeout=15000): pg.wait_for_function("window.__ec.A && window.__ec.A.phase === '%s'" % ph, timeout=timeout)
@@ -128,8 +129,9 @@ def handlers_ok(pg):
 def set_key(pg, key="AIzaTESTKEY123"):
     click(pg, "tab", "set"); pg.fill("#ecGKey", key); click(pg, "gSave")
     pg.wait_for_function("document.querySelector('#ecMain').innerText.indexOf('키가 확인됐습니다') >= 0", timeout=8000)
-def new_page(b, t, viewport=PHONE, init=None, perms=PERMS):
+def new_page(b, t, viewport=PHONE, init=None, perms=PERMS, fake=None):
     ctx = b.new_context(viewport=viewport, permissions=perms)
+    if fake: fake.attach(ctx)
     ctx.add_init_script(MOCK)
     if init: ctx.add_init_script(init)
     pg = ctx.new_page(); errs = []
@@ -137,3 +139,147 @@ def new_page(b, t, viewport=PHONE, init=None, perms=PERMS):
     pg.on("console", lambda m: errs.append("console: " + m.text) if m.type == "error" else None)
     pg.goto(URL); pg.wait_for_function("window.__ec && document.querySelector('#ecNav button')")
     return ctx, pg, errs
+
+
+# ---------------------------------------------------------------------------
+# 가짜 구글·Firebase 서버. 여러 기기(브라우저 창)가 같은 서버를 본다.
+# 문서 형식은 Firebase REST 문서(accounts:signInWithIdp, securetoken, Firestore documents)를 따른다.
+# ---------------------------------------------------------------------------
+import re, base64, urllib.parse, datetime
+
+FBCFG = {"apiKey": "AIzaFAKEWEBKEY", "projectId": "english-coach-test", "clientId": "1234-abc.apps.googleusercontent.com", "redirect": URL}
+FB_INIT = "window.__FB = %s;" % json.dumps(FBCFG)
+CORS = {"access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS", "content-type": "application/json; charset=utf-8"}
+
+def b64u(b): return base64.urlsafe_b64encode(b).decode().rstrip("=")
+def make_jwt(payload): return b64u(json.dumps({"alg": "RS256", "typ": "JWT"}).encode()) + "." + b64u(json.dumps(payload, ensure_ascii=False).encode("utf-8")) + ".c2ln"
+def jwt_payload(tok):
+    try:
+        p = tok.split(".")[1]; return json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)).decode("utf-8"))
+    except Exception: return None
+
+class FakeGoogle:
+    def __init__(self):
+        self.account = {"sub": "1001", "email": "pastor@example.com", "name": "강동윤"}
+        self.docs = {}                      # 경로 → {fields, createTime, updateTime}
+        self.tokens = set(); self.n = 0; self.clock = 0
+        self.auth_requests = []; self.idp_requests = []; self.count = {"get": 0, "patch": 0, "commit": 0, "query": 0, "refresh": 0, "idp": 0, "delete": 0}
+        # 실패 상황 스위치
+        self.oauth_error = None; self.bad_state = False; self.bad_nonce = False; self.provider_off = False; self.reject_id_token = False
+        self.revoked = False; self.reject_once = False; self.down = False; self.before_patch = None
+    # ---- 공통 ----
+    def now(self):
+        self.clock += 1
+        return (datetime.datetime(2026, 11, 15, 0, 0, 0) + datetime.timedelta(milliseconds=self.clock)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    def send(self, route, status, obj): route.fulfill(status=status, headers=CORS, body=json.dumps(obj, ensure_ascii=False))
+    def err(self, route, status, st, msg=None): self.send(route, status, {"error": {"code": status, "message": msg or st, "status": st}})
+    def attach(self, ctx):
+        ctx.route(re.compile(r"^https://accounts\.google\.com/o/oauth2/v2/auth"), self.h_oauth)
+        ctx.route(re.compile(r"^https://identitytoolkit\.googleapis\.com/"), self.h_idp)
+        ctx.route(re.compile(r"^https://securetoken\.googleapis\.com/"), self.h_token)
+        ctx.route(re.compile(r"^https://firestore\.googleapis\.com/"), self.h_fs)
+    def new_token(self, uid):
+        self.n += 1; tok = "IDT.%s.%d" % (uid, self.n); self.tokens.add(tok); return tok
+    def logs(self, uid): return {k.split("/log/")[1]: v for k, v in self.docs.items() if k.startswith("users/%s/log/" % uid)}
+    def state(self, uid):
+        d = self.docs.get("users/%s/state/main" % uid); return json.loads(d["fields"]["j"]["stringValue"]) if d else None
+    # ---- 구글 로그인 화면 (바로 돌려보낸다) ----
+    def h_oauth(self, route, request):
+        q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(request.url).query)); self.auth_requests.append(q)
+        if q.get("redirect_uri") != FBCFG["redirect"] or q.get("client_id") != FBCFG["clientId"]:
+            route.fulfill(status=400, headers={"content-type": "text/html; charset=utf-8"}, body="<h1>400 redirect_uri_mismatch</h1>"); return
+        if self.oauth_error: frag = "error=%s&state=%s" % (self.oauth_error, q.get("state", ""))
+        else:
+            a = self.account
+            idt = make_jwt({"iss": "https://accounts.google.com", "aud": q["client_id"], "sub": a["sub"], "email": a["email"], "name": a["name"], "nonce": "wrong" if self.bad_nonce else q.get("nonce", "")})
+            frag = urllib.parse.urlencode({"state": "wrong" if self.bad_state else q.get("state", ""), "access_token": "AT." + a["sub"], "token_type": "Bearer", "expires_in": "3599", "scope": "email profile openid", "id_token": idt, "authuser": "0", "prompt": "none"})
+        route.fulfill(status=200, headers={"content-type": "text/html; charset=utf-8"}, body="<script>location.replace(%s)</script>" % json.dumps(q["redirect_uri"] + "#" + frag))
+    # ---- Firebase 로그인 ----
+    def h_idp(self, route, request):
+        if request.method == "OPTIONS": route.fulfill(status=204, headers=CORS); return
+        self.count["idp"] += 1
+        key = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(request.url).query)).get("key")
+        body = json.loads(request.post_data or "{}"); self.idp_requests.append(body)
+        if key != FBCFG["apiKey"]: self.err(route, 400, "INVALID_ARGUMENT", "API key not valid. Please pass a valid API key."); return
+        if self.provider_off: self.err(route, 400, "INVALID_ARGUMENT", "OPERATION_NOT_ALLOWED : The identity provider configuration is disabled."); return
+        pb = dict(urllib.parse.parse_qsl(body.get("postBody", ""))); acct = None
+        if pb.get("providerId") == "google.com" and "id_token" in pb and not self.reject_id_token:
+            c = jwt_payload(pb["id_token"])
+            if c and c.get("aud") == FBCFG["clientId"]: acct = c
+        elif pb.get("providerId") == "google.com" and pb.get("access_token", "").startswith("AT."):
+            sub = pb["access_token"][3:]; acct = {"sub": sub, "email": self.account["email"] if self.account["sub"] == sub else sub + "@example.com", "name": self.account["name"]}
+        if not acct: self.err(route, 400, "INVALID_ARGUMENT", "INVALID_IDP_RESPONSE : Invalid Idp Response: the Google id_token is not allowed to be used with this application."); return
+        uid = "U" + acct["sub"]
+        self.send(route, 200, {"federatedId": "https://accounts.google.com/" + acct["sub"], "providerId": "google.com", "localId": uid, "emailVerified": True, "email": acct["email"],
+                               "displayName": acct.get("name", ""), "idToken": self.new_token(uid), "refreshToken": "RT." + uid, "expiresIn": "3600", "kind": "identitytoolkit#VerifyAssertionResponse"})
+    def h_token(self, route, request):
+        if request.method == "OPTIONS": route.fulfill(status=204, headers=CORS); return
+        self.count["refresh"] += 1
+        f = dict(urllib.parse.parse_qsl(request.post_data or "")); rt = f.get("refresh_token", "")
+        if self.revoked or f.get("grant_type") != "refresh_token" or not rt.startswith("RT."): self.err(route, 400, "INVALID_ARGUMENT", "TOKEN_EXPIRED"); return
+        uid = rt[3:]; self.send(route, 200, {"expires_in": "3600", "token_type": "Bearer", "refresh_token": rt, "id_token": self.new_token(uid), "user_id": uid, "project_id": "1234"})
+    # ---- Firestore ----
+    def h_fs(self, route, request):
+        if request.method == "OPTIONS": route.fulfill(status=204, headers=CORS); return
+        if self.down: self.err(route, 503, "UNAVAILABLE", "The service is currently unavailable."); return
+        u = urllib.parse.urlparse(request.url); q = dict(urllib.parse.parse_qsl(u.query))
+        root = "/v1/projects/%s/databases/(default)/documents" % FBCFG["projectId"]; path = urllib.parse.unquote(u.path)
+        if not path.startswith(root): self.err(route, 404, "NOT_FOUND", "database not found"); return
+        rest = path[len(root):].lstrip("/")
+        auth = request.headers.get("authorization", "")
+        if not auth: self.err(route, 403, "PERMISSION_DENIED", "Missing or insufficient permissions."); return
+        tok = auth.replace("Bearer ", "")
+        if self.reject_once: self.reject_once = False; self.tokens.discard(tok)
+        if tok not in self.tokens: self.err(route, 401, "UNAUTHENTICATED", "Request had invalid authentication credentials."); return
+        uid = tok.split(".")[1]; mine = lambda p: p.startswith("users/%s/" % uid)
+        body = json.loads(request.post_data) if request.post_data else {}
+        if rest == ":commit" and request.method == "POST":
+            self.count["commit"] += 1; pre = "projects/%s/databases/(default)/documents/" % FBCFG["projectId"]; ws = body.get("writes", [])
+            if len(ws) > 500: self.err(route, 400, "INVALID_ARGUMENT", "too many writes"); return
+            for w in ws:
+                if "update" not in w or not w["update"]["name"].startswith(pre) or not mine(w["update"]["name"][len(pre):]): self.err(route, 403, "PERMISSION_DENIED", "Missing or insufficient permissions."); return
+            ts = self.now()
+            for w in ws:
+                p = w["update"]["name"][len(pre):]; f = dict(w["update"].get("fields", {}))
+                for tr in w.get("updateTransforms", []):
+                    if tr.get("setToServerValue") == "REQUEST_TIME": f[tr["fieldPath"]] = {"timestampValue": ts}
+                old = self.docs.get(p); self.docs[p] = {"fields": f, "createTime": old["createTime"] if old else ts, "updateTime": ts}
+            self.send(route, 200, {"writeResults": [{"updateTime": ts} for _ in ws], "commitTime": ts}); return
+        if rest.endswith(":runQuery") and request.method == "POST":
+            self.count["query"] += 1; parent = rest[:-len(":runQuery")]
+            if not mine(parent + "/"): self.err(route, 403, "PERMISSION_DENIED", "Missing or insufficient permissions."); return
+            sq = body["structuredQuery"]; col = sq["from"][0]["collectionId"]; field = sq["orderBy"][0]["field"]["fieldPath"]
+            rows = [(k, v) for k, v in self.docs.items() if k.startswith(parent + "/" + col + "/") and field in v["fields"]]
+            ff = sq.get("where", {}).get("fieldFilter")
+            if ff:
+                val = ff["value"]["timestampValue"]; get = lambda v: v["fields"][ff["field"]["fieldPath"]]["timestampValue"]
+                rows = [r for r in rows if (get(r[1]) > val if ff["op"] == "GREATER_THAN" else get(r[1]) >= val)]
+            rows.sort(key=lambda r: (r[1]["fields"][field]["timestampValue"], r[0])); rows = rows[: sq.get("limit", 10 ** 9)]
+            rt = self.now(); pre = "projects/%s/databases/(default)/documents/" % FBCFG["projectId"]
+            self.send(route, 200, [{"document": {"name": pre + k, "fields": v["fields"], "createTime": v["createTime"], "updateTime": v["updateTime"]}, "readTime": rt} for k, v in rows] or [{"readTime": rt}]); return
+        if not mine(rest): self.err(route, 403, "PERMISSION_DENIED", "Missing or insufficient permissions."); return
+        if request.method == "GET":
+            self.count["get"] += 1; d = self.docs.get(rest)
+            if not d: self.err(route, 404, "NOT_FOUND", "Document not found."); return
+            self.send(route, 200, {"name": "projects/%s/databases/(default)/documents/%s" % (FBCFG["projectId"], rest), **d}); return
+        if request.method == "PATCH":
+            self.count["patch"] += 1
+            if self.before_patch and rest.endswith("/state/main"): hook = self.before_patch; self.before_patch = None; hook(self, rest)
+            d = self.docs.get(rest)
+            if q.get("currentDocument.exists") == "false" and d: self.err(route, 409, "ALREADY_EXISTS", "Document already exists."); return
+            if "currentDocument.updateTime" in q and (not d or d["updateTime"] != q["currentDocument.updateTime"]): self.err(route, 400, "FAILED_PRECONDITION", "the stored version does not match the required base version"); return
+            ts = self.now(); self.docs[rest] = {"fields": body.get("fields", {}), "createTime": d["createTime"] if d else ts, "updateTime": ts}
+            self.send(route, 200, {"name": rest, **self.docs[rest]}); return
+        if request.method == "DELETE": self.count["delete"] += 1; self.err(route, 403, "PERMISSION_DENIED", "Missing or insufficient permissions."); return
+        self.err(route, 400, "INVALID_ARGUMENT", "unsupported")
+
+def wait_js(pg, js, timeout=15000):
+    """화면이 다른 주소로 갔다 오는 동안에도 기다린다"""
+    import time
+    end = time.time() + timeout / 1000
+    while True:
+        try:
+            if pg.evaluate(js): return True
+        except Exception: pass
+        if time.time() > end: raise AssertionError("기다리다 시간 초과: " + js[:120])
+        pg.wait_for_timeout(120)

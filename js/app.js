@@ -1,7 +1,7 @@
 "use strict";
-/* 영어 말하기 코치 v6 — 화면과 훈련 흐름. 기준은 SPEC.md. */
+/* 영어 말하기 코치 — 화면과 훈련 흐름. 기준은 SPEC.md. */
 const U = { tab: "home", scene: 0, f: { script: "", phEn: "", phKo: "", bk: "", gkey: "" }, remember: true, tagSel: null, ordSel: null, showZero: false,
-  phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0 };
+  phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0, flash: null, smsg: null, diag: null };
 let A = null;                                     /* 진행 중인 훈련 */
 let SAY = [];                                     /* 「듣기」 버튼이 읽을 글 */
 const REC = { on: false, busy: false, t0: 0, timer: null, max: 0, done: null };
@@ -40,9 +40,48 @@ function render() {
   else h = drawSettings();
   $("ecMain").innerHTML = h;
   $("ecNav").innerHTML = TABS.map(t => '<button class="ec-navb" data-act="tab" data-arg="' + t[0] + '" aria-current="' + (U.tab === t[0] ? "page" : "false") + '">' + t[1] + (t[0] === "train" && A ? '<i class="ec-dot"></i>' : "") + '</button>').join("");
-  $("ecWarn").innerHTML = DB.saveFail ? '<div class="ec-msg err">이 기기의 저장 공간이 부족하거나 저장이 막혀 있습니다. 「기록」에서 백업을 내려받아 주세요.</div>' : "";
+  $("ecWarn").innerHTML = (DB.saveFail ? '<div class="ec-msg err">이 기기의 저장 공간이 부족하거나 저장이 막혀 있습니다. 「기록」에서 백업을 내려받아 주세요.</div>' : "") +
+    (AUTH.uid && SYNC.err && !SYNC.busy && U.tab !== "set" ? '<div class="ec-msg err">구글 저장이 잠시 멈췄습니다. 기록은 이 기기에 그대로 있습니다. 「설정」에서 확인해 주세요.</div>' : "") +
+    (U.flash ? '<button class="ec-flash" data-act="flash">' + esc(U.flash.text) + ' <b>보기 →</b></button>' : "");
+  keepAwake(REC.on || !!(A && A.phase === "sending"));
 }
-function go(tab) { U.tab = tab; U.note = null; render(); window.scrollTo(0, 0); }
+function go(tab) {
+  U.tab = tab; U.note = (tab === "train" && A && A.phase === "fail" && A.failMsg) ? { text: A.failMsg, err: true } : null;
+  if (tab === "train") U.flash = null;
+  render(); window.scrollTo(0, 0);
+}
+
+/* ---------- 하던 일 보관과 이어 하기 ---------- */
+const hasPend = a => !!a && (a.type === "talk" || a.type === "retell" ? !!a.pend : hasWork(a));
+function pendSave() { if (hasPend(A)) idbSet("pend", { t: Date.now(), a: A }); else idbDel("pend"); }
+/* 채점이 끝났을 때: 훈련 화면을 보고 있으면 true, 다른 화면이면 알림을 띄우고 false */
+function arrived(text) { pendSave(); if (A) A.autoTried = false; if (U.tab !== "train") { U.flash = { text }; render(); return false; } U.note = null; render(); return true; }
+function failed(me, why, kind) {
+  me.phase = "fail"; me.failMsg = why; me.failKind = kind || "other"; pendSave();
+  if (U.tab !== "train") { U.flash = { text: me.title + ": 채점이 멈췄습니다." }; render(); } else { render(); setMsg(why, true); }
+}
+function resumeSend() { if (!A) return; if (A.type === "batch") batchSend(); else if (A.type === "talk") talkSend(); else if (A.type === "retell") retellSend(); else if (A.type === "test") testSend(); }
+function pendRestore() {                           /* 화면이 닫혔다 다시 열렸을 때 하던 훈련과 녹음을 되살린다 */
+  return idbGet("pend").then(p => {
+    const a = p && p.a;
+    if (!a || A) return;
+    const good = (a.type === "batch" && Array.isArray(a.items) && Array.isArray(a.clips)) || (a.type === "talk" && Array.isArray(a.turns) && a.pend) || (a.type === "retell" && Array.isArray(a.queue) && a.pend) || (a.type === "test" && Array.isArray(a.tasks));
+    if (!good || Date.now() - (+p.t || 0) > 48 * 3600000) { idbDel("pend"); return; }
+    A = a; A.quitAsk = false; A.autoTried = false;
+    const was = A.phase;
+    if (was === "sending") { A.phase = "fail"; A.failMsg = "보내던 중에 화면이 닫혔습니다. 녹음은 그대로 있습니다."; A.failKind = "net"; }
+    U.flash = { text: A.title + (was === "sending" && G.key ? ": 멈췄던 채점을 이어서 합니다." : ": 하던 훈련이 남아 있습니다.") };
+    render();
+    if (was === "sending" && G.key) resumeSend();
+  });
+}
+let WAKE = null;
+function keepAwake(on) {                           /* 녹음·채점 중에는 화면이 저절로 꺼지지 않게 (지원하는 기기에서만) */
+  try {
+    if (on) { if (!WAKE && navigator.wakeLock && !document.hidden) { WAKE = "wait"; navigator.wakeLock.request("screen").then(w => { WAKE = w; w.addEventListener("release", () => { if (WAKE === w) WAKE = null; }); }, () => { WAKE = null; }); } }
+    else if (WAKE && WAKE !== "wait") { const w = WAKE; WAKE = null; w.release().catch(() => {}); }
+  } catch (e) { WAKE = null; }
+}
 
 /* ---------- 홈 ---------- */
 function planMonths(hours) { const perWeek = DB.set.minutes * 6 / 60, mo = Math.round(hours / perWeek / 4.345); return mo >= 12 ? "약 " + Math.floor(mo / 12) + "년" + (mo % 12 ? " " + (mo % 12) + "개월" : "") : "약 " + mo + "개월"; }
@@ -57,6 +96,8 @@ function drawHome() {
   const d = today(), r = dayRec(d), p = PLAN(), goal = DB.set.minutes, min = r.sec / 60, ts = tests(), last = ts[ts.length - 1], prev = ts[ts.length - 2];
   let h = "";
   if (!G.key) h += card("시작하기", '<p>선생님(Gemini)이 녹음을 들으려면 이용 키가 한 번 필요합니다.</p>' + btn("설정 열기", "tab", "set"));
+  if (fbReady() && SYNC.ask) h += card("계정 확인이 필요합니다", '<p>이 기기의 기록을 지금 로그인한 계정에 합칠지 정해 주세요.</p>' + btn("설정에서 정하기", "tab", "set"));
+  else if (fbReady() && !AUTH.uid) h += card("기기를 바꿔도 기록이 이어지게", '<p class="ec-sub">구글로 로그인하면 휴대폰·아이패드·노트북에서 같은 기록을 씁니다. 기록은 합치기만 하고 지우지 않습니다.</p>' + btn("구글로 로그인", "login"));
   /* 등급과 목표 */
   let lv = "";
   if (last) {
@@ -92,7 +133,7 @@ function drawHome() {
   }
   /* 실전 미션 */
   const w = weekNo(d), mk = DB.miss[w] || {};
-  h += card("이번 주 실전 미션", '<p class="ec-sub">앱은 훈련장이고 실전은 사람과 합니다. 한 것은 눌러서 표시해 주세요.</p>' + missionsOfWeek(w).map(m => '<button class="ec-miss' + (mk[m.id] ? " done" : "") + '" data-act="miss" data-arg="' + m.id + '"><i>' + (mk[m.id] ? "✓" : "") + '</i><span>' + esc(m.t) + '</span></button>').join(""));
+  h += card("이번 주 실전 미션", '<p class="ec-sub">앱은 훈련장이고 실전은 사람과 합니다. 한 것은 눌러서 표시해 주세요.</p>' + missionsOfWeek(w).map(m => '<button class="ec-miss' + (mk[m.id] > 0 ? " done" : "") + '" data-act="miss" data-arg="' + m.id + '"><i>' + (mk[m.id] > 0 ? "✓" : "") + '</i><span>' + esc(m.t) + '</span></button>').join(""));
   return h;
 }
 
@@ -122,7 +163,7 @@ function recStart(max, done) {
   REC.busy = true; setMsg(""); speakStop();
   capStart(() => {
     REC.busy = false; REC.on = true; REC.t0 = Date.now(); REC.max = max; REC.done = done;
-    REC.timer = setInterval(() => { const s = (Date.now() - REC.t0) / 1000, el = $("ecRecT"); if (el) el.textContent = fmtSec(s); tick(); if (s >= REC.max) recStop(); }, 250);
+    REC.timer = setInterval(() => { const s = (Date.now() - REC.t0) / 1000, el = $("ecRecT"); if (el) el.textContent = fmtSec(s); if (s >= REC.max) recStop(); }, 250);
     render();
   }, why => { REC.busy = false; render(); setMsg(why, true); });
 }
@@ -148,7 +189,7 @@ function hasWork(a) {
   if (a.type === "test") return a.phase !== "done" && a.phase !== "intro" && a.tasks.some(t => t.clip);
   return false;
 }
-function endAct() { recAbort(); speakStop(); A = null; U.note = null; render(); window.scrollTo(0, 0); }
+function endAct() { recAbort(); speakStop(); A = null; U.note = null; U.flash = null; pendSave(); render(); window.scrollTo(0, 0); }
 function nextBtn() { const ns = nextStep(); return ns ? btn("다음 단계: " + STEP_NAME[ns], "start", ns) : '<div class="ec-msg">오늘 루틴을 모두 마쳤습니다.</div>'; }
 function drawStage() {
   let h = '<div class="ec-row between ec-stagehead">' + btn("← 목록", "quit", null, "ghost small") + '<b>' + esc(A.title) + '</b></div>';
@@ -201,7 +242,7 @@ function batchRec() {
   const it = A.items[A.i];
   recStart(20, (pcm, m) => {
     if (m.speech < 0.3) { render(); setMsg("소리가 잡히지 않았습니다. 조금 더 크게, 다시 녹음해 주세요.", true); return; }
-    A.clips[A.i] = clipOf(pcm, m); A.phase = "shown"; setMsg(""); render();
+    A.clips[A.i] = clipOf(pcm, m); A.phase = "shown"; pendSave(); setMsg(""); render();
     if (DB.set.autoSpeak) speak(it.en);
   });
 }
@@ -209,7 +250,7 @@ const FOCUS_EN = { d_flat: "flat intonation: stress the key words and move the p
 function batchSend() {
   const me = A; me.items = me.items.slice(0, me.clips.length);
   const n = me.items.length; if (!n) return;
-  me.phase = "sending"; me.quitAsk = false; setMsg(""); render();
+  me.phase = "sending"; me.quitAsk = false; me.failMsg = ""; pendSave(); setMsg(""); render();
   const parts = [{ text: "MODE: batch\n" + profileText() + "\nThere are " + n + " items." }];
   me.items.forEach((it, i) => {
     parts.push({ text: "ITEM " + (i + 1) + " | TASK " + it.task + " | TARGET: " + it.en + " | FOCUS: " + (it.focus ? it.focus + " (" + (TAG_EN[it.focus] || FOCUS_EN[it.focus] || "") + ")" : "none") });
@@ -232,8 +273,9 @@ function batchSend() {
     if (me.kind === "phr" && !me.again) dbSave("srs");
     logAdd({ k: me.kind, n, ok: res.filter(x => x.ok).length, it: me.items.map((it, i) => [it.ref, res[i].ok ? 1 : 0, res[i].score, res[i].tag, res[i].ok ? "" : res[i].heard.slice(0, 80)]), md: model });
     const day = dayRec(); if (me.step) day.st[me.step] += n; day.said += res.filter(x => x.heard).length; daySave();
-    me.res = res; me.phase = "done"; U.note = null; render(); window.scrollTo(0, 0);
-  }, why => { if (A !== me) return; me.phase = "fail"; render(); setMsg(why, true); });
+    me.res = res; me.phase = "done";
+    if (arrived(me.title + " 채점이 끝났습니다.")) window.scrollTo(0, 0);
+  }, (why, kind) => { if (A === me) failed(me, why, kind); });
 }
 function drawBatchDone() {
   const ok = A.res.filter(x => x.ok).length, n = A.res.length, wrong = n - ok;
@@ -276,20 +318,19 @@ function talkRec() {
 }
 function talkSend() {
   const me = A, p = me.pend; if (!p) return;
-  me.phase = "sending"; me.quitAsk = false; setMsg(""); render();
+  me.phase = "sending"; me.quitAsk = false; me.failMsg = ""; pendSave(); setMsg(""); render();
   gCall({ sys: sysFor("talk"), temp: 0.4, parts: [{ text: talkContext(me, p.m) }, { inlineData: { mimeType: "audio/wav", data: p.b64 } }] }, s => { if (A === me) setMsg(s); }, (r, model) => {
     if (A !== me) return;
     const c = cleanTalk(r);
-    if (!c.transcript) { me.pend = null; me.phase = "idle"; render(); setMsg("선생님이 말소리를 알아듣지 못했다고 합니다. 다시 녹음해 주세요.", true); return; }
+    if (!c.transcript) { me.pend = null; me.phase = "idle"; pendSave(); if (U.tab !== "train") U.flash = { text: me.title + ": 말소리를 알아듣지 못했다고 합니다." }; render(); setMsg("선생님이 말소리를 알아듣지 못했다고 합니다. 다시 녹음해 주세요.", true); return; }
     const sc = D.SCENES[me.scene], words = wc(c.transcript), tags = tagsOf(c, p.m, words, !!sc.script);
     const rec = logAdd({ k: "talk", sc: sc.id, q: me.q.slice(0, 240), tx: c.transcript.slice(0, 900), nat: c.natural.slice(0, 900), ch: c.chunks, s: [c.sc.pron, c.sc.inton, c.sc.flu, c.sc.gram], m: mPack(p.m, words), tags,
       fx: c.gram.map(g => ({ a: g.said.slice(0, 120), b: g.better.slice(0, 120), g: g.tag })), pr: c.pron.map(x => ({ w: x.word, g: x.tag })), md: model });
     const day = dayRec(); day.st.talk++; day.said += sentences(c.transcript); daySave();
     me.turns.push({ q: me.q, r: c, m: p.m, words, tags, id: rec.id, model, open: false });
-    me.q = c.reply || "Thank you. Please tell me more."; me.pend = null; me.phase = "idle"; U.note = null; render();
-    const el = $("ecLast"); if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" });
-    if (DB.set.autoSpeak) speak(me.q);
-  }, why => { if (A !== me) return; me.phase = "fail"; render(); setMsg(why, true); });
+    me.q = c.reply || "Thank you. Please tell me more."; me.pend = null; me.phase = "idle";
+    if (arrived(me.title + ": 선생님 답이 왔습니다.")) { const el = $("ecLast"); if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" }); if (DB.set.autoSpeak) speak(me.q); }
+  }, (why, kind) => { if (A === me) failed(me, why, kind); });
 }
 function turnOpen(t, i, last) {
   const r = t.r, m = t.m, wpm = wpmOf(m, t.words), ppm = ppmOf(m), dev = t.tags.filter(g => DEVICE_TAGS[g] || g === "d_filler" || g === "d_ending");
@@ -396,18 +437,19 @@ function retellRec() {
 }
 function retellSend() {
   const me = A, p = me.pend, src = me.queue[me.i]; if (!p) return;
-  me.phase = "sending"; me.quitAsk = false; setMsg(""); render();
+  me.phase = "sending"; me.quitAsk = false; me.failMsg = ""; pendSave(); setMsg(""); render();
   const text = ["MODE: retell", "QUESTION: " + (src.q || ""), "FIRST ATTEMPT: " + (src.tx || ""), "TARGET: " + src.nat, profileText(), metricsText(p.m), "The attached audio is his second attempt."].join("\n\n");
   gCall({ sys: sysFor("retell"), temp: 0.3, parts: [{ text }, { inlineData: { mimeType: "audio/wav", data: p.b64 } }] }, s => { if (A === me) setMsg(s); }, (r, model) => {
     if (A !== me) return;
     const c = cleanRetell(r);
-    if (!c.transcript) { me.pend = null; me.phase = "hidden"; render(); setMsg("선생님이 말소리를 알아듣지 못했다고 합니다. 다시 녹음해 주세요.", true); return; }
+    if (!c.transcript) { me.pend = null; me.phase = "hidden"; pendSave(); if (U.tab !== "train") U.flash = { text: me.title + ": 말소리를 알아듣지 못했다고 합니다." }; render(); setMsg("선생님이 말소리를 알아듣지 못했다고 합니다. 다시 녹음해 주세요.", true); return; }
     const words = wc(c.transcript), tags = tagsOf(c, p.m, words, false);
     me.mp = mPack(p.m, words);
     logAdd({ k: "retell", src: src.id, tx: c.transcript.slice(0, 900), cov: c.covered, s: [c.sc.pron, c.sc.inton, c.sc.flu, c.sc.gram], m: me.mp, tags, fx: c.left.map(g => ({ a: g.said.slice(0, 120), b: g.better.slice(0, 120), g: g.tag })), pr: c.pron.map(x => ({ w: x.word, g: x.tag })), md: model });
     const day = dayRec(); day.st.retell++; day.said += sentences(c.transcript); daySave();
-    me.res = c; me.pend = null; me.phase = "done"; U.note = null; render(); window.scrollTo(0, 0);
-  }, why => { if (A !== me) return; me.phase = "fail"; render(); setMsg(why, true); });
+    me.res = c; me.pend = null; me.phase = "done";
+    if (arrived("다시 말하기 채점이 끝났습니다.")) window.scrollTo(0, 0);
+  }, (why, kind) => { if (A === me) failed(me, why, kind); });
 }
 
 /* ---------- 레벨 테스트 ---------- */
@@ -435,11 +477,11 @@ function testRec() {
   const t = A.tasks[A.i];
   recStart(t.k === "read" ? 100 : 80, (pcm, m) => {
     if (m.speech < 5) { render(); setMsg("너무 짧습니다. 5초 이상 말해 주세요.", true); return; }
-    t.clip = clipOf(pcm, m); t.res = null; A.phase = "shown"; setMsg(""); render();
+    t.clip = clipOf(pcm, m); t.res = null; A.phase = "shown"; pendSave(); setMsg(""); render();
   });
 }
 function testSend() {
-  const me = A; me.phase = "sending"; me.quitAsk = false; me.redo = null; U.note = null; render();
+  const me = A; me.phase = "sending"; me.quitAsk = false; me.redo = null; me.failMsg = ""; U.note = null; pendSave(); render();
   const step = () => {
     if (A !== me) return;
     const i = me.tasks.findIndex(t => !t.res);
@@ -449,9 +491,9 @@ function testSend() {
     gCall({ sys: sysFor("test"), temp: 0, parts: [{ text }, { inlineData: { mimeType: "audio/wav", data: t.clip.b64 } }] }, s => { if (A === me) setMsg(s); }, (r, model) => {
       if (A !== me) return;
       const c = cleanTest(r);
-      if (!c.transcript || c.sc.pron == null) { me.phase = "fail"; me.redo = i; render(); setMsg(TEST_NAME[t.k] + " 녹음에서 말소리를 알아듣지 못했다고 합니다. 그 과제만 다시 녹음해 주세요.", true); return; }
-      t.res = c; t.model = model; step();
-    }, why => { if (A !== me) return; me.phase = "fail"; render(); setMsg(why, true); });
+      if (!c.transcript || c.sc.pron == null) { me.redo = i; failed(me, TEST_NAME[t.k] + " 녹음에서 말소리를 알아듣지 못했다고 합니다. 그 과제만 다시 녹음해 주세요.", "other"); return; }
+      t.res = c; t.model = model; pendSave(); step();
+    }, (why, kind) => { if (A === me) failed(me, why, kind); });
   };
   step();
 }
@@ -463,7 +505,8 @@ function testFinish() {
   logAdd({ k: "test", score: out.total, lv: out.level, parts: out.parts, set: A.set, tags: uniq(tags), fx: fx.slice(0, 8), pr: pr.slice(0, 8), md: T[0].model,
     tasks: T.map((t, i) => ({ k: t.k, tx: t.res.transcript.slice(0, 600), s: [t.res.sc.pron, t.res.sc.inton, t.res.sc.gram, t.res.sc.vocab, t.res.sc.task], m: mPack(t.clip.m, calc[i].words), c: t.res.comment.slice(0, 300) })) });
   const day = dayRec(); T.forEach(t => { day.said += sentences(t.res.transcript); }); daySave();
-  A.out = out; A.prev = prev; A.tags = uniq(tags); A.phase = "done"; U.note = null; render(); window.scrollTo(0, 0);
+  A.out = out; A.prev = prev; A.tags = uniq(tags); A.phase = "done";
+  if (arrived("레벨 테스트 채점이 끝났습니다.")) window.scrollTo(0, 0);
 }
 const PART_NAME = { pron: "발음 25%", inton: "억양 15%", flu: "유창성 20%", gram: "문법 20%", vocab: "표현 10%", task: "과제 수행 10%" };
 function drawTestDone() {
@@ -619,6 +662,18 @@ function mergeText(text) {
 }
 
 /* ---------- 설정 ---------- */
+function drawSyncCard() {
+  let b;
+  if (!fbReady()) b = '<p class="ec-sub">지금은 이 기기의 이 브라우저에 저장됩니다. 구글 로그인은 연결 값을 넣는 마지막 단계가 남았습니다. 그때까지는 「기록」의 백업을 써 주세요.</p>';
+  else if (SYNC.ask) b = '<div class="ec-msg err">이 기기의 기록은 다른 계정(' + esc(SYNC.ask.old || "이전 계정") + ')으로 이어 쓰던 것입니다. 지금 로그인한 ' + esc(SYNC.ask.email || "새 계정") + ' 계정에 합칠까요? 합치면 이 기기의 기록이 이 계정에도 올라갑니다.</div><div class="ec-row">' + btn("이 계정에 합치기", "acctMerge") + btn("합치지 않고 로그아웃", "logout", null, "ghost") + '</div>';
+  else if (!AUTH.uid) b = (SYNC.err ? '<div class="ec-msg err">' + esc(SYNC.err) + '</div>' : "") + '<p class="ec-sub">구글로 로그인하면 휴대폰·아이패드·노트북 어디서 열어도 기록이 이어집니다. 기록은 지우거나 덮어쓰지 않고 합치기만 합니다. Gemini 이용 키는 올라가지 않으니 기기마다 한 번씩 넣어 주세요.</p>' + btn("구글로 로그인", "login", null, "wide");
+  else b = '<p><b>' + esc(AUTH.email || AUTH.name || "로그인됨") + '</b></p><p class="ec-sub">' + (SYNC.busy ? "기록을 맞추는 중…" : (SYNC.last ? "마지막으로 맞춘 때 " + stamp(SYNC.last).slice(5) : "아직 맞추지 않음")) + ' · 이 기기 기록 ' + DB.log.length + '개 · ' + (SYNC.un.length ? '아직 올리지 않은 것 ' + SYNC.un.length + '개' : '모두 올라가 있음') + '</p>' +
+    (SYNC.err ? '<div class="ec-msg err">' + esc(SYNC.err) + ' 기록은 이 기기에 그대로 있습니다.</div>' : "") +
+    '<div class="ec-row">' + btn("지금 맞추기", "syncGo") + btn("처음부터 다시 맞추기", "syncAll", null, "ghost small") + btn("로그아웃", "logout", null, "ghost small") + '</div>';
+  b += msgBox(U.smsg);
+  if (fbReady()) b += '<div class="ec-row">' + btn("연결 점검", "diag", null, "ghost small") + '</div>' + (U.diag ? '<ul class="ec-ul ec-diag">' + U.diag.map(x => '<li class="' + (x.ok ? "s-good" : "s-bad") + '">' + (x.ok ? "✓ " : "✗ ") + esc(x.text) + '</li>').join("") + '</ul>' : "");
+  return card("기록 저장 (구글 로그인)", b);
+}
 function drawSettings() {
   const order = gOrder();
   let g = '<p class="ec-sub">선생님 역할을 하는 구글 Gemini의 이용 키입니다. 이 기기에만 저장되고 기록·백업에는 들어가지 않습니다. 키는 aistudio.google.com 의 「Get API key」에서 무료로 만듭니다.</p>' +
@@ -630,7 +685,7 @@ function drawSettings() {
   let h = card("선생님 연결 (Gemini)", g);
   h += card("하루 목표", '<div class="ec-seg">' + [15, 30, 60].map(m => '<button data-act="minutes" data-arg="' + m + '" aria-pressed="' + (DB.set.minutes === m) + '">' + m + '분</button>').join("") + '</div><p class="ec-sub">' + DB.set.minutes + '분이면 하루에 구문 ' + PLAN().phr + '개, 훈련 ' + PLAN().dr + '문장, 대화 ' + PLAN().talk + '번, 다시 말하기 ' + PLAN().retell + '번입니다. 주 6일 기준 한 단계에 ' + planMonths(200) + '.</p>');
   h += card("소리", '<label class="ec-check"><input type="checkbox" id="ecAuto" data-chg="auto"' + (DB.set.autoSpeak ? " checked" : "") + '> 선생님 말과 정답을 자동으로 읽어 주기</label><p class="ec-sub">읽어 주는 목소리는 기기에 들어 있는 영어 음성입니다.</p>' + btn("목소리 들어 보기", "voice", null, "ghost small"));
-  h += card("기록 저장", '<p class="ec-sub">지금은 이 기기의 이 브라우저에 저장됩니다. 구글 로그인으로 기기 사이에 이어 쓰는 기능은 다음 단계에서 붙입니다. 그때까지는 「기록」의 백업을 써 주세요.</p>');
+  h += drawSyncCard();
   h += '<p class="ec-ver">영어 말하기 코치 v' + BUILD + ' · 설계 문서 SPEC.md</p>';
   return h;
 }
@@ -669,7 +724,7 @@ const ACT = {
   tDrop: () => { A.pend = null; A.phase = "idle"; setMsg(""); render(); },
   tFold: a => { const t = A.turns[+a]; if (t) { t.open = !t.open; if (A.allOpen) { A.allOpen = false; A.turns.forEach((x, i) => { x.open = i !== +a; }); } render(); } },
   tAll: () => { A.allOpen = !A.allOpen; if (!A.allOpen) A.turns.forEach(t => { t.open = false; }); render(); },
-  tSave: a => { const p = String(a).split("."), t = A.turns[+p[0]], ph = t && t.r.phrases[+p[1]]; if (ph) { addMyPhrase(ph.en, ph.ko); render(); } },
+  tSave: a => { const p = String(a).split("."), t = A.turns[+p[0]], ph = t && t.r.phrases[+p[1]]; if (ph) { addMyPhrase(ph.en, ph.ko); syncSoon(); render(); } },
   tEnd: () => { A.phase = "end"; render(); window.scrollTo(0, 0); },
   /* 다시 말하기 */
   rHide: () => { A.pend = null; A.phase = "hidden"; setMsg(""); speakStop(); render(); window.scrollTo(0, 0); },
@@ -683,8 +738,8 @@ const ACT = {
   xNext: () => { const i = A.tasks.findIndex(t => !t.clip); if (i < 0) { testSend(); return; } A.i = i; A.phase = "ask"; setMsg(""); render(); window.scrollTo(0, 0); },
   xSend: () => testSend(),
   xRedoTask: () => { A.i = A.redo; A.tasks[A.i].clip = null; A.tasks[A.i].res = null; A.redo = null; A.phase = "ask"; setMsg(""); render(); },
-  xHome: () => { A = null; go("home"); },
-  xRec: () => { A = null; go("rec"); },
+  xHome: () => { A = null; pendSave(); go("home"); },
+  xRec: () => { A = null; pendSave(); go("rec"); },
   /* 약점 */
   tagOpen: a => { if (!D.TAGS[a]) return; U.tagSel = a; U.ordSel = null; go("weak"); },
   tagBack: () => { U.tagSel = null; U.ordSel = null; go("weak"); },
@@ -698,10 +753,10 @@ const ACT = {
     const r = addMyPhrase(U.f.phEn, U.f.phKo);
     if (r === null) U.phMsg = { text: "영어 구문을 넣어 주세요.", err: true };
     else if (r === false) U.phMsg = { text: "이미 있는 구문입니다.", err: true };
-    else { U.phMsg = { text: "담았습니다. 다음 구문 복습에 먼저 나옵니다." }; U.f.phEn = ""; U.f.phKo = ""; U.phCat = "my"; }
+    else { U.phMsg = { text: "담았습니다. 다음 구문 복습에 먼저 나옵니다." }; U.f.phEn = ""; U.f.phKo = ""; U.phCat = "my"; syncSoon(); }
     render();
   },
-  phDel: a => { if (U.delAsk !== a) { U.delAsk = a; render(); return; } DB.my = DB.my.filter(p => p.id !== a); dbSave("my"); U.delAsk = null; render(); },
+  phDel: a => { if (U.delAsk !== a) { U.delAsk = a; render(); return; } DB.my = DB.my.filter(p => p.id !== a); DB.gone[a] = now(); dbSave("my"); dbSave("gone"); syncSoon(); U.delAsk = null; render(); },
   /* 기록 */
   logOpen: a => { U.logOpen = U.logOpen === a ? null : a; render(); },
   logMore: () => { U.logN += 30; render(); },
@@ -729,7 +784,20 @@ const ACT = {
   gClear: () => { G.key = ""; U.f.gkey = ""; store.del("ec_gkey"); U.gmsg = { text: "키를 지웠습니다." }; render(); },
   gReset: () => { gReset(); U.gmsg = { text: "한도 기록을 지웠습니다. 다음 요청부터 가장 좋은 모델로 다시 시도합니다." }; render(); },
   minutes: a => { const m = +a; if ([15, 30, 60].indexOf(m) >= 0) { DB.set.minutes = m; dbSave("set"); render(); } },
-  miss: a => { const w = weekNo(today()), m = DB.miss[w] || (DB.miss[w] = {}); if (m[a]) delete m[a]; else m[a] = now(); dbSave("miss"); render(); }
+  miss: a => { const w = weekNo(today()), m = DB.miss[w] || (DB.miss[w] = {}); m[a] = m[a] > 0 ? -now() : now(); dbSave("miss"); syncSoon(); render(); },
+  flash: () => { U.flash = null; go("train"); },
+  /* 구글 로그인 */
+  login: () => {
+    if (REC.on) return;
+    daySave();
+    const leave = () => { const e = loginStart(); if (e) { U.smsg = { text: e, err: true }; go("set"); } };
+    if (hasPend(A)) idbSet("pend", { t: Date.now(), a: A }).then(leave, leave); else leave();
+  },
+  logout: () => { logout(); U.smsg = { text: "로그아웃했습니다. 이 기기의 기록은 그대로 있습니다." }; U.diag = null; render(); },
+  acctMerge: () => { U.smsg = { text: "기록을 합치는 중…" }; render(); bindAccount().then(ok => { U.smsg = ok ? { text: "이 계정에 합쳤습니다." } : null; render(); }); },
+  syncGo: () => { U.smsg = null; syncNow().then(ok => { U.smsg = ok ? { text: "맞췄습니다. 올린 기록 " + SYNC.stats.up + "개, 받은 기록 " + SYNC.stats.down + "개 (이번에 연 뒤로)." } : null; if (U.tab === "set") render(); }); },
+  syncAll: () => { U.smsg = null; syncFull().then(ok => { U.smsg = ok ? { text: "처음부터 다시 맞췄습니다. 이 기기 기록 " + DB.log.length + "개." } : null; if (U.tab === "set") render(); }); },
+  diag: () => { U.diag = [{ ok: true, text: "점검 중…" }]; render(); diagRun().then(out => { U.diag = out; if (U.tab === "set") render(); }); }
 };
 const CHG = {
   scene: el => { U.scene = +el.value || 0; render(); },
@@ -745,15 +813,36 @@ document.addEventListener("click", e => {
 });
 document.addEventListener("change", e => { const k = e.target.getAttribute && e.target.getAttribute("data-chg"); if (k && CHG[k]) { tick(); CHG[k](e.target); } });
 document.addEventListener("input", e => { const k = e.target.getAttribute && e.target.getAttribute("data-bind"); if (k) U.f[k] = e.target.value; });
-let lastScrollTick = 0;
-window.addEventListener("scroll", () => { const t = Date.now(); if (t - lastScrollTick > 5000) { lastScrollTick = t; tick(); } }, { passive: true });
-document.addEventListener("visibilitychange", () => { if (document.hidden) { daySave(); lastTick = 0; } });
+/* 학습 시간: 앱을 보고 있는 동안 센다. 건드리는 것(누르기·밀기·글자)과 녹음·채점·듣기는 '쓰는 중'으로 본다. */
+["scroll", "touchstart", "pointerdown", "keydown"].forEach(ev => window.addEventListener(ev, tick, { passive: true }));
+setInterval(() => {
+  let speaking = false; try { speaking = !!(window.speechSynthesis && window.speechSynthesis.speaking); } catch (e) {}
+  const turned = beat(REC.on || !!(A && A.phase === "sending") || speaking);
+  if (turned && U.tab === "home" && !REC.on) render();
+}, 1000);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {                           /* 떠날 때: 녹음은 거기까지 담고, 시간 세기를 멈춘다 */
+    daySave();
+    if (REC.on) { recStop(); setMsg("다른 화면으로 나가서 녹음을 거기까지만 담았습니다."); }
+    return;
+  }
+  if (A && A.phase === "fail" && A.failKind === "net" && !A.autoTried && G.key) { A.autoTried = true; if (U.tab === "train") setMsg("돌아와서 이어서 보냅니다…"); resumeSend(); }
+  else render();
+  if (Date.now() - SYNC.last > 120000) syncSoon(800);
+});
 window.addEventListener("pagehide", daySave);
 
 /* ---------- 시작 ---------- */
 const MIGRATED = dbLoad();
-gLoad();
+gLoad(); authLoad();
 U.f.gkey = G.key; U.remember = G.key ? !!store.get("ec_gkey") : true; U.scene = today() % 6;
 G.onChain = () => { if (U.tab === "set") render(); };
+SYNC.onPaint = () => { if (REC.on) return; const ae = document.activeElement, typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName); if (!typing && (U.tab === "set" || U.tab === "home" || U.tab === "rec")) render(); };
+const BACK = fbReady() ? loginReturn() : null;    /* 구글 로그인 화면에서 돌아온 것인지 */
+if (BACK) { U.tab = "set"; U.smsg = { text: "로그인을 확인하는 중…" }; }
 render();
-window.__ec = { U, DB, G, REC, ACT, CHG, Clock, get A() { return A; }, set A(v) { A = v; }, render, go, tick, dbLoad, dbSave, logAdd, srsMark, tagStats, focusTags, pickPhrases, pickDrills, testScore, levelOf, backupMake, backupMerge, coachReport, analyze, sysFor, profileText, dayRec, today, streak, MIGRATED };
+if (BACK) BACK.then(() => { U.smsg = { text: "로그인했습니다. 기록을 맞추는 중…" }; render(); return afterLogin(); })
+  .then(() => { U.smsg = SYNC.ask || SYNC.err ? null : { text: "로그인했고 기록을 맞췄습니다." }; render(); }, e => { U.smsg = { text: String(e && e.message || e), err: true }; render(); });
+else authResume();
+pendRestore();
+window.__ec = { U, DB, G, REC, ACT, CHG, Clock, AUTH, SYNC, FB, get A() { return A; }, set A(v) { A = v; }, render, go, tick, beat, dbLoad, dbSave, logAdd, srsMark, tagStats, focusTags, pickPhrases, pickDrills, testScore, levelOf, backupMake, backupMerge, coachReport, analyze, sysFor, profileText, dayRec, today, streak, MIGRATED };

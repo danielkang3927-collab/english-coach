@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="ec-build" content="6">
+<meta name="ec-build" content="7">
 <title>영어 말하기 코치</title>
 <link rel="icon" href="data:,">
 <style>
@@ -44,6 +44,8 @@ p{margin:6px 0}
 .ec-msg{margin-top:10px;padding:10px 12px;border-radius:9px;font-size:14px;background:var(--chip)}
 .ec-msg.err{border:1px solid var(--bad);color:var(--bad);background:transparent}
 #ecWarn .ec-msg{margin:0 0 12px}
+.ec-flash{display:block;width:100%;text-align:left;margin:0 0 12px;padding:12px 14px;border-radius:11px;border:1px solid var(--brand);background:var(--chip);color:var(--ink);font:inherit;font-size:15px}
+.ec-flash b{color:var(--brand);white-space:nowrap}
 .ec-scores{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:8px;margin:8px 0}
 .ec-score{border:1px solid var(--line);border-radius:10px;padding:8px 4px;text-align:center}
 .ec-score b{display:block;font-size:24px;line-height:1.2}
@@ -131,6 +133,7 @@ table.ec-t th{color:var(--sub);font-weight:400;font-size:13px}
 .ec-chart .goal{stroke:var(--mid);stroke-width:1;stroke-dasharray:4 3}
 .ec-ul,.ec-ol{padding-left:20px;margin:6px 0;font-size:15px}
 .ec-ul li,.ec-ol li{margin-bottom:6px}
+.ec-diag{list-style:none;padding-left:0;font-size:14px}
 .ec-gap{margin-top:12px}
 .ec-ver{font-size:12px;color:var(--sub);text-align:center}
 .ec-stagehead{margin:0 0 10px}
@@ -157,8 +160,9 @@ table.ec-t th{color:var(--sub);font-weight:400;font-size:13px}
   <button data-act="bottom" aria-label="맨 아래로">▼</button>
 </div>
 <nav class="ec-nav" id="ecNav" aria-label="화면 이동"></nav>
-<script src="js/data.js?v=6"></script>
-<script src="js/core.js?v=6"></script>
-<script src="js/app.js?v=6"></script>
+<script src="js/data.js?v=7"></script>
+<script src="js/core.js?v=7"></script>
+<script src="js/sync.js?v=7"></script>
+<script src="js/app.js?v=7"></script>
 </body>
 </html>
