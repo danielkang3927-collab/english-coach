@@ -145,7 +145,7 @@ with sync_playwright() as p:
         pg.goto(URL); pg.evaluate(MOCK)
         # 모든 data-act 요소에 처리기가 있는지: 문서 단위 연결이므로 종류만 대조
         acts = pg.evaluate("Array.from(new Set(Array.from(document.querySelectorAll('[data-act]')).map(e=>e.getAttribute('data-act'))))")
-        known = {"tab", "mode", "pick", "rec", "word", "copy", "again", "savekey", "clearkey", "copyhist", "tstart", "trec", "say", "tcopy", "gsave", "gmodels", "gclear", "gunblock"}
+        known = {"tab", "mode", "pick", "rec", "word", "copy", "again", "savekey", "clearkey", "copyhist", "tstart", "trec", "say", "tcopy", "gsave", "gmodels", "gclear", "gunblock", "tresend"}
         check(name + " B0 버튼 종류가 모두 처리 목록에 있음", set(acts) <= known, acts)
         pg.click('[data-tab="setup"]'); pg.fill("#ecKey", "k"); pg.fill("#ecRegion", "eastus"); pg.check("#ecRemember"); pg.click('[data-act="savekey"]')
         check(name + " B1 저장 문구", "저장했습니다" in pg.inner_text("#ecKeyMsg"))
@@ -242,6 +242,7 @@ with sync_playwright() as p:
         if(opt.body){ try{ var b=JSON.parse(opt.body); rec.audioHead=b.contents[0].parts[1].inlineData.data.slice(0,6); rec.mime=b.contents[0].parts[1].inlineData.mimeType; rec.ctx=b.contents[0].parts[0].text; rec.audioLen=b.contents[0].parts[1].inlineData.data.length; }catch(e){ rec.err=String(e); } }
         window.__calls.push(rec);
         var mode=window.__gmode||'ok', status=200, body;
+        if(/generateContent/.test(url) && (mode==='netfail' || (mode==='netonce' && !window.__netOnceDone))){ window.__netOnceDone=true; return new Promise(function(res, rej){ setTimeout(function(){ rej(new TypeError('Load failed')); }, 20); }); }
         if(/models\\?pageSize/.test(url)){
           if(mode==='badkey'){ status=400; body={error:{message:'API key not valid. Please pass a valid API key.'}}; }
           else if(mode==='retired') body={models:[{name:'models/gemini-4.0-flash-lite',supportedGenerationMethods:['generateContent']},{name:'models/gemini-3.8-flash',supportedGenerationMethods:['generateContent']},{name:'models/gemini-4.1-flash-preview',supportedGenerationMethods:['generateContent']},{name:'models/gemini-3.5-flash',supportedGenerationMethods:['generateContent']},{name:'models/gemini-4.0-flash',supportedGenerationMethods:['generateContent']}]};
@@ -266,7 +267,7 @@ with sync_playwright() as p:
         pg.on("pageerror", lambda e: errs.append(str(e)))
         pg.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
         pg.goto(URL); pg.evaluate(FETCH)
-        check(name + " C0 첫 화면이 대화 탭 + 버전 v4", pg.is_visible("#tab-talk") and pg.inner_text("#ecVer") == "v4")
+        check(name + " C0 첫 화면이 대화 탭 + 버전 v5", pg.is_visible("#tab-talk") and pg.inner_text("#ecVer") == "v5")
         check(name + " C1 키 없을 때 안내", "Gemini" in pg.inner_text("#ecTMsg"))
         # 소리 분석 단위 시험: 150Hz 1초, 0.7초 쉼, 200Hz 1초
         an = pg.evaluate("""(function(){ var r=16000, n=r*3.2, x=new Float32Array(n); function tone(a,b,f){ for(var i=a;i<b;i++) x[i]=0.3*Math.sin(2*Math.PI*f*i/r)+0.1*Math.sin(4*Math.PI*f*i/r); }
@@ -383,6 +384,21 @@ with sync_playwright() as p:
         pg.wait_for_function("window.__ec.T.state==='idle' && document.querySelectorAll('#ecChat .ec-turn').length===%d" % turns, timeout=20000)
         last = pg.evaluate("window.__calls[window.__calls.length-1].url")
         check(name + " C27b 없어진 모델이면 자동으로 바꿔 다시 보냄(안정판 최신 flash)", "gemini-4.0-flash:generateContent" in last and pg.input_value("#ecGModel") == "" and pg.evaluate("window.__ec.gmem.chain[0]") == "gemini-4.0-flash" and pg.inner_text("#ecTMsg").strip() == "", last)
+        # 연결이 한 번 끊기면 스스로 다시 보냄
+        pg.evaluate("window.__ec.gReset(); window.__gmode='netonce'; window.__netOnceDone=false; window.__calls=[]")
+        say_once(); turns += 1
+        pg.wait_for_function("window.__ec.T.state==='idle' && document.querySelectorAll('#ecChat .ec-turn').length===%d" % turns, timeout=20000)
+        n_calls = pg.evaluate("window.__calls.filter(c=>/generateContent/.test(c.url)).length")
+        check(name + " C27i 연결이 한 번 끊기면 자동으로 다시 보냄", n_calls == 2 and pg.inner_text("#ecTMsg").strip() == "" and not pg.is_visible("#ecTResend"), n_calls)
+        # 계속 끊기면 녹음을 보관하고 「다시 보내기」 버튼을 보여 줌
+        pg.evaluate("window.__gmode='netfail'; window.__calls=[]")
+        say_once()
+        pg.wait_for_function("window.__ec.T.state==='idle' && !!document.querySelector('#ecTMsg .err')", timeout=40000)
+        check(name + " C27j 계속 끊기면 안내 + 다시 보내기 버튼", "다시 보내기" in pg.inner_text("#ecTMsg") and "Load failed" in pg.inner_text("#ecTMsg") and pg.is_visible("#ecTResend") and pg.locator("#ecChat .ec-turn").count() == turns, pg.inner_text("#ecTMsg"))
+        pg.evaluate("window.__gmode='ok'; window.__calls=[]")
+        pg.click('[data-act="tresend"]'); turns += 1
+        pg.wait_for_function("window.__ec.T.state==='idle' && document.querySelectorAll('#ecChat .ec-turn').length===%d" % turns, timeout=20000)
+        check(name + " C27k 다시 보내기로 같은 녹음 전송 성공", pg.evaluate("window.__calls.filter(c=>/generateContent/.test(c.url)).length") == 1 and pg.evaluate("window.__calls[0].audioLen") > 50000 and not pg.is_visible("#ecTResend") and pg.inner_text("#ecTMsg").strip() == "")
         order = pg.evaluate("window.__ec.gRank(['gemini-4.0-flash-lite','gemini-3.8-flash','gemini-4.1-flash-preview','gemini-4.0-flash','gemini-flash-latest','gemini-3.9-flash-lite-preview'])")
         check(name + " C27h 순서 규칙", order == ["gemini-4.0-flash", "gemini-3.8-flash", "gemini-4.1-flash-preview", "gemini-flash-latest", "gemini-4.0-flash-lite", "gemini-3.9-flash-lite-preview"], order)
         pg.evaluate("window.__gmode='ok'")
@@ -394,7 +410,7 @@ with sync_playwright() as p:
         pg.select_option("#ecScene", "0"); pg.click('[data-act="tstart"]')
         check(name + " C29 새 대화로 초기화", pg.locator("#ecChat .ec-turn").count() == 0 and pg.locator("#ecChat .ec-bub").count() == 1 and "family" in pg.inner_text("#ecChat"))
         pg.click('[data-tab="history"]')
-        check(name + " C30 기록에 대화 7건", pg.locator("#ecHist tr").count() == 8 and "대화" in pg.inner_text("#ecHist"), pg.inner_text("#ecHist"))
+        check(name + " C30 기록에 대화 9건", pg.locator("#ecHist tr").count() == 10 and "대화" in pg.inner_text("#ecHist"), pg.inner_text("#ecHist"))
         pg.reload(); pg.evaluate(FETCH)
         check(name + " C31 새로 고침 뒤 키·모델 기억", pg.evaluate("document.getElementById('ecGKey').value") == "test-key" and pg.evaluate("document.getElementById('ecGModel').value") == "" and pg.evaluate("window.__ec.gmem.chain[0]") == "gemini-4.0-flash" and pg.inner_text("#ecTMsg").strip() == "")
         pg.click('[data-tab="setup"]'); pg.click('[data-act="gclear"]')

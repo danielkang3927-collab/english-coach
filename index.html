@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="ec-build" content="4">
+<meta name="ec-build" content="5">
 <title>영어 말하기 코치</title>
 <style>
 :root{
@@ -114,6 +114,7 @@ ol.ec-steps li{margin-bottom:6px}
     <div class="ec-card">
       <button class="ec-btn rec" id="ecTRec" data-act="trec">대답 녹음 시작</button>
       <div id="ecTMsg"></div>
+      <button class="ec-btn ghost ec-hide" id="ecTResend" data-act="tresend" style="width:100%;margin-top:10px">방금 녹음 다시 보내기 (다시 말하지 않아도 됩니다)</button>
       <div class="ec-row" style="margin-top:12px">
         <button class="ec-btn ghost" data-act="tcopy">대화 결과 복사 (Claude에게 붙여 넣기)</button>
       </div>
@@ -237,7 +238,7 @@ ol.ec-steps li{margin-bottom:6px}
 <script>
 (function(){
 "use strict";
-var BUILD = 4;
+var BUILD = 5;
 var MAX_SEC = 180;
 var $ = function(id){ return document.getElementById(id); };
 var store = {
@@ -615,7 +616,7 @@ var SCENES = [
   {id:"read", name:"원고 낭독 코칭", open:"Please read your text aloud, clearly and naturally. I will listen to your pronunciation and intonation.", script:true},
   {id:"free", name:"자유 주제", open:"Hello! What would you like to talk about today?"}
 ];
-var T = { scene:0, turns:[], says:[], state:"idle", cap:null, timer:null, t0:0, script:"" };
+var T = { scene:0, turns:[], says:[], state:"idle", cap:null, timer:null, t0:0, script:"", pending:null };
 var gmem = { key:"", model:"", chain:[] };
 var gq = { block:{}, dead:{} };
 var G_BASE = "https://generativelanguage.googleapis.com/v1beta/";
@@ -839,13 +840,18 @@ function clean(r){
     sc:{pron:num(s.pronunciation), inton:num(s.intonation), flu:num(s.fluency), gram:num(s.grammar)}
   };
 }
+function fetchT(url, opt, ms){
+  var ctl=(typeof AbortController!=="undefined") ? new AbortController() : null, timer=null;
+  if(ctl){ opt.signal=ctl.signal; timer=setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, ms); }
+  return fetch(url, opt).then(function(r){ if(timer) clearTimeout(timer); return r; }, function(e){ if(timer) clearTimeout(timer); throw e; });
+}
 function gAsk(b64, metrics, done, fail){
   var body=JSON.stringify({
     systemInstruction:{parts:[{text:G_SYS}]},
     contents:[{role:"user", parts:[{text:gContext(metrics)}, {inlineData:{mimeType:"audio/wav", data:b64}}]}],
     generationConfig:{responseMimeType:"application/json", temperature:0.4}
   });
-  var tried=[];
+  var tried=[], netTry={}, lastNet="";
   function next(why){
     if(why) tMsg(why, false);
     if(!gmem.chain.length){ gList(function(){ run(); }, fail); return; }
@@ -853,11 +859,11 @@ function gAsk(b64, metrics, done, fail){
   }
   function run(){
     var order=gOrder().filter(gFree).filter(function(n){ return tried.indexOf(n)<0; });
-    if(!order.length || tried.length>=6){ drawChain(); fail(gStuck()); return; }
+    if(!order.length || tried.length>=6){ drawChain(); fail(lastNet ? "구글에 연결하지 못했습니다. 인터넷 연결을 확인한 뒤 「방금 녹음 다시 보내기」를 눌러 주세요. ("+lastNet+")" : gStuck()); return; }
     var model=order[0]; tried.push(model);
-    fetch(G_BASE+"models/"+encodeURIComponent(model)+":generateContent", {
+    fetchT(G_BASE+"models/"+encodeURIComponent(model)+":generateContent", {
       method:"POST", headers:{"Content-Type":"application/json","x-goog-api-key":gmem.key}, body:body
-    }).then(function(res){
+    }, 75000).then(function(res){
       return res.text().then(function(tx){
         if(res.status===404){
           gq.dead[model]=1;
@@ -880,7 +886,15 @@ function gAsk(b64, metrics, done, fail){
         if(!r || typeof r!=="object"){ fail("Gemini의 답을 읽지 못했습니다. 다시 한 번 녹음해 주세요."); return; }
         r=clean(r); r.model=model; drawChain(); done(r);
       });
-    }).catch(function(e){ fail("구글에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요."); });
+    }).catch(function(e){
+      lastNet=String((e&&e.name==="AbortError") ? "응답 시간 초과" : ((e&&e.message)||e)).slice(0,60);
+      if(!netTry[model]){
+        netTry[model]=1; tried.pop();
+        tMsg("연결이 끊겨 다시 보내는 중…", false);
+        setTimeout(run, 1500); return;
+      }
+      next("「"+model+"」에 연결되지 않아 다음 모델로 보내는 중…");
+    });
   }
   next("");
 }
@@ -954,6 +968,7 @@ function tStart(){
   T.script=SCENES[T.scene].script ? $("ecScript").value.replace(/\s+/g," ").trim() : "";
   if(SCENES[T.scene].script && !T.script){ tMsg("읽을 원고를 먼저 붙여 넣어 주세요.", true); return; }
   T.turns=[{role:"teacher", text:SCENES[T.scene].open}];
+  T.pending=null; $("ecTResend").classList.add("ec-hide");
   tMsg(""); $("ecTCopyNote").textContent=""; $("ecTCopyArea").classList.add("ec-hide");
   drawChat();
   if($("ecAutoSpeak").checked) speak(SCENES[T.scene].open);
@@ -965,6 +980,7 @@ function tRec(){
   if(!gmem.key){ tMsg("먼저 「설정」에서 Gemini 이용 키를 넣어 주세요.", true); return; }
   if(!T.turns.length){ tStart(); if(!T.turns.length) return; }
   try{ if(window.speechSynthesis) window.speechSynthesis.cancel(); }catch(e){}
+  T.pending=null; $("ecTResend").classList.add("ec-hide");
   T.state="busy"; drawTRec();
   capStart(function(){
     T.state="rec"; T.t0=Date.now(); drawTRec();
@@ -979,15 +995,22 @@ function tSend(){
   if(!pcm || pcm.length<16000*0.8){ T.state="idle"; drawTRec(); tMsg("녹음이 너무 짧습니다. 1초 넘게 말해 주세요.", true); return; }
   var m=analyze(pcm, 16000);
   if(m.speech<0.4){ T.state="idle"; drawTRec(); tMsg("말소리가 거의 잡히지 않았습니다. 마이크 가까이에서 조금 더 크게 말해 보세요.", true); return; }
-  var b64=wavBase64(pcm, 16000);
-  gAsk(b64, m, function(r){
-    T.turns.push({role:"me", r:r, m:m, t:Date.now()});
+  T.pending={b64:wavBase64(pcm, 16000), m:m};
+  tDeliver();
+}
+function tDeliver(){
+  var pd=T.pending; if(!pd) return;
+  $("ecTResend").classList.add("ec-hide");
+  T.state="busy"; drawTRec();
+  gAsk(pd.b64, pd.m, function(r){
+    T.pending=null;
+    T.turns.push({role:"me", r:r, m:pd.m, t:Date.now()});
     if(r.reply) T.turns.push({role:"teacher", text:r.reply});
     T.state="idle"; drawTRec(); drawChat(); tMsg("");
-    saveTalk(r, m);
+    saveTalk(r, pd.m);
     if(r.reply && $("ecAutoSpeak").checked) speak(r.reply);
     var cards=document.querySelectorAll("#ecChat .ec-turn"); if(cards.length && cards[cards.length-1].scrollIntoView) cards[cards.length-1].scrollIntoView({block:"start"});
-  }, function(why){ T.state="idle"; drawTRec(); tMsg(why, true); });
+  }, function(why){ T.state="idle"; drawTRec(); tMsg(why, true); $("ecTResend").classList.remove("ec-hide"); });
 }
 function saveTalk(r, m){
   var vals=[r.sc.pron,r.sc.inton,r.sc.flu,r.sc.gram].filter(function(x){return x!=null;});
@@ -1032,6 +1055,7 @@ document.addEventListener("click", function(ev){
   else if(act==="copyhist"){ copyText(historyText(), "ecHistArea", "ecHistNote"); }
   else if(act==="tstart"){ tStart(); }
   else if(act==="trec"){ tRec(); }
+  else if(act==="tresend"){ if(T.state==="idle" && T.pending){ tMsg("다시 보내는 중…", false); tDeliver(); } }
   else if(act==="say"){ var tx=T.says[Number(el.getAttribute("data-i"))]; if(tx && !speak(tx)) tMsg("이 브라우저에서는 소리 내어 읽기를 쓸 수 없습니다.", true); }
   else if(act==="tcopy"){ if(T.turns.some(function(t){return t.role==="me";})) copyText(talkText(), "ecTCopyArea", "ecTCopyNote"); else tMsg("아직 녹음한 대답이 없습니다.", true); }
   else if(act==="gsave"){ gModels(); }
