@@ -67,6 +67,19 @@ MOCK = r"""
   var real = window.fetch;
   window.fetch = function(url, opt){
     url = String(url);
+    if(url.indexOf("api.elevenlabs.io") >= 0){
+      var X = window.__xi = window.__xi || {tts:[], mode:"ok"}; var key = (opt.headers||{})["xi-api-key"];
+      var js = function(st, o){ return Promise.resolve(new Response(JSON.stringify(o), {status:st})); };
+      if(key !== "sk_test_elevenlabs_key_0001") return js(401, {detail:{status:"invalid_api_key", message:"Invalid API key"}});
+      if(url.indexOf("/voices") >= 0) return js(200, {voices:[{voice_id:"vF1", name:"Alice", labels:{gender:"female", accent:"british"}}, {voice_id:"vM2", name:"Zed", labels:{gender:"male", accent:"british"}}, {voice_id:"vM1", name:"Brian", labels:{gender:"male", accent:"american"}}]});
+      if(url.indexOf("/user/subscription") >= 0) return js(200, {character_count:120, character_limit:10000});
+      if(url.indexOf("/text-to-speech/") >= 0){
+        if(X.mode === "quota") return js(401, {detail:{status:"quota_exceeded", message:"quota"}});
+        X.tts.push({voice:url.split("/text-to-speech/")[1].split("?")[0], body:JSON.parse(opt.body)});
+        return Promise.resolve(new Response(new Uint8Array(600).buffer, {status:200}));
+      }
+      return js(404, {detail:{status:"not_found"}});
+    }
     if(url.indexOf("generativelanguage.googleapis.com") < 0) return real.apply(this, arguments);
     var M = window.__mock;
     function resp(status, obj){ return new Promise(function(res){ setTimeout(function(){ res(new Response(JSON.stringify(obj), {status:status})); }, 25); }); }

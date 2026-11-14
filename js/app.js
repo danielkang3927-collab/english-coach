@@ -666,6 +666,26 @@ function mergeText(text) {
 }
 
 /* ---------- 설정 ---------- */
+function drawXi() {
+  let h = '<hr class="ec-hr"><h3 class="ec-h3">더 자연스러운 목소리 (ElevenLabs, 선택)</h3><p class="ec-sub">elevenlabs.io 에서 만든 API 키를 넣으면 원어민 성우 목소리로 읽어 줍니다. 키는 이 기기에만 저장되고 기록·백업·서버에는 들어가지 않습니다. 한 번 읽은 문장은 기기에 저장해 두어 다시 들을 때는 크레딧이 들지 않습니다.</p>';
+  if (!XI.key) return h + '<label for="ecXiKey">ElevenLabs API 키</label><input type="password" id="ecXiKey" data-bind="xiKey" value="' + esc(U.f.xiKey || "") + '" placeholder="sk_…" autocomplete="off">' +
+    '<div class="ec-row">' + btn("저장하고 목소리 고르기", "xiSave") + '</div>' + msgBox(U.xiMsg);
+  h += '<label for="ecXiVoice">목소리 (남자·미국식이 위에 옵니다)</label><select id="ecXiVoice" data-chg="xiVoice">' +
+    (XI.voices.length ? XI.voices : (XI.voice ? [{ id: XI.voice, name: XI.name, gender: "", accent: "" }] : [])).map(v => '<option value="' + esc(v.id) + '"' + (v.id === XI.voice ? " selected" : "") + '>' + esc(v.name) + (v.gender || v.accent ? " · " + esc([v.gender === "male" ? "남자" : (v.gender === "female" ? "여자" : v.gender), v.accent].filter(Boolean).join(" · ")) : "") + '</option>').join("") + '</select>';
+  if (XI.limit) h += '<p class="ec-sub">이번 달 사용 ' + XI.used.toLocaleString() + ' / ' + XI.limit.toLocaleString() + ' 크레딧</p>';
+  if (XI.note) h += '<div class="ec-msg err">' + esc(XI.note) + '</div>';
+  return h + '<div class="ec-row">' + btn("목록·사용량 새로 받기", "xiRefresh", null, "ghost small") + btn("키 지우기", "xiDel", null, "ghost small") + '</div>' + msgBox(U.xiMsg);
+}
+function xiSetup(key, first) {
+  U.xiMsg = { text: "확인하는 중…" }; render();
+  xiVoices(key).then(vs => {
+    if (!vs.length) throw new Error("쓸 수 있는 목소리가 없습니다.");
+    XI.key = key; store.set("ec_xikey", key); U.f.xiKey = "";
+    if (!XI.voices.some(v => v.id === XI.voice)) xiSetVoice(vs[0].id);
+    return xiUsage(key).catch(() => null);
+  }).then(() => { XI.off = 0; XI.note = ""; U.xiMsg = { text: first ? "연결했습니다. 목소리는 " + XI.name + " 입니다. 「목소리 들어 보기」로 확인해 보세요." : "새로 받았습니다." }; if (U.tab === "set") render(); },
+    e => { U.xiMsg = { text: String(e && e.message || e), err: true }; if (U.tab === "set") render(); });
+}
 function drawSyncCard() {
   let b;
   if (!fbReady()) b = '<p class="ec-sub">지금은 이 기기의 이 브라우저에 저장됩니다. 구글 로그인은 연결 값을 넣는 마지막 단계가 남았습니다. 그때까지는 「기록」의 백업을 써 주세요.</p>';
@@ -688,7 +708,7 @@ function drawSettings() {
     '<div class="ec-sub ec-gap">쓰는 순서 (막히면 자동으로 다음 모델)</div><ol class="ec-ol">' + order.map(n => '<li>' + esc(n) + ' <span class="ec-sub">— ' + gStateOf(n) + '</span></li>').join("") + '</ol><div class="ec-row">' + btn("한도 기록 지우고 다시 시도", "gReset", null, "ghost small") + '</div>';
   let h = card("선생님 연결 (Gemini)", g);
   h += card("하루 목표", '<div class="ec-seg">' + [15, 30, 60].map(m => '<button data-act="minutes" data-arg="' + m + '" aria-pressed="' + (DB.set.minutes === m) + '">' + m + '분</button>').join("") + '</div><p class="ec-sub">' + DB.set.minutes + '분이면 하루에 구문 ' + PLAN().phr + '개, 훈련 ' + PLAN().dr + '문장, 대화 ' + PLAN().talk + '번, 다시 말하기 ' + PLAN().retell + '번입니다. 주 6일 기준 한 단계에 ' + planMonths(200) + '.</p>');
-  h += card("소리", '<label class="ec-check"><input type="checkbox" id="ecAuto" data-chg="auto"' + (DB.set.autoSpeak ? " checked" : "") + '> 선생님 말과 정답을 자동으로 읽어 주기</label><p class="ec-sub">읽어 주는 목소리는 기기에 들어 있는 영어 음성입니다.</p>' + btn("목소리 들어 보기", "voice", null, "ghost small"));
+  h += card("소리", '<label class="ec-check"><input type="checkbox" id="ecAuto" data-chg="auto"' + (DB.set.autoSpeak ? " checked" : "") + '> 선생님 말과 정답을 자동으로 읽어 주기</label><p class="ec-sub">' + (XI.key && XI.voice ? "지금 읽어 주는 목소리: ElevenLabs " + esc(XI.name) + ". 막히면 기기 목소리로 읽습니다." : "읽어 주는 목소리는 기기에 들어 있는 영어 음성입니다.") + '</p>' + btn("목소리 들어 보기", "voice", null, "ghost small") + drawXi());
   h += drawSyncCard();
   h += '<p class="ec-ver">영어 말하기 코치 v' + BUILD + ' · 설계 문서 SPEC.md</p>';
   return h;
@@ -699,6 +719,9 @@ const ACT = {
   tab: a => { U.tagSel = null; U.ordSel = null; U.delAsk = null; U.back = null; go(a); },
   top: () => window.scrollTo({ top: 0, behavior: "smooth" }),
   bottom: () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" }),
+  xiSave: () => { const k = String(U.f.xiKey || "").trim(); if (k.length < 20) { U.xiMsg = { text: "ElevenLabs 키를 붙여 넣어 주세요.", err: true }; render(); return; } xiUnlock(); xiSetup(k, true); },
+  xiRefresh: () => { xiSetup(XI.key, false); },
+  xiDel: () => { speakStop(); xiClear(); U.xiMsg = { text: "ElevenLabs 키를 지웠습니다. 기기 목소리로 읽습니다." }; render(); },
   say: a => { const t = SAY[+a]; if (t) speak(t); },
   voice: () => { if (!speak("Hello. I am your English coach. Let's practice together.")) { U.gmsg = { text: "이 브라우저는 읽어 주기를 지원하지 않습니다.", err: true }; render(); } },
   routine: () => { const ns = nextStep(); ACT.start(ns || "talk"); },
@@ -810,6 +833,7 @@ const ACT = {
 const CHG = {
   scene: el => { U.scene = +el.value || 0; render(); },
   remember: el => { U.remember = el.checked; },
+  xiVoice: el => { xiSetVoice(el.value); XI.off = 0; U.xiMsg = null; render(); speak("Hello. I am your English coach."); },
   auto: el => { DB.set.autoSpeak = el.checked; dbSave("set"); if (!el.checked) speakStop(); },
   gmodel: el => { G.model = el.value; store.set("ec_gmodel", G.model); U.gmsg = { text: G.model ? "「" + G.model + "」을 먼저 씁니다." : "가장 좋은 모델부터 자동으로 씁니다." }; render(); },
   bkFile: el => { const f = el.files && el.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => mergeText(rd.result); rd.onerror = () => { U.bkMsg = { text: "파일을 읽지 못했습니다.", err: true }; render(); }; rd.readAsText(f); }
@@ -842,7 +866,7 @@ window.addEventListener("pagehide", daySave);
 
 /* ---------- 시작 ---------- */
 const MIGRATED = dbLoad();
-gLoad(); authLoad();
+gLoad(); authLoad(); xiLoad(); document.addEventListener("pointerdown", () => { xiUnlock(); }, true);
 U.f.gkey = G.key; U.remember = G.key ? !!store.get("ec_gkey") : true; U.scene = today() % 6;
 G.onChain = () => { if (U.tab === "set") render(); };
 SYNC.onPaint = () => { if (REC.on) return; const ae = document.activeElement, typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName); if (!typing && (U.tab === "set" || U.tab === "home" || U.tab === "rec")) render(); };
