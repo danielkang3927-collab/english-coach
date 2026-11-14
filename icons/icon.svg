@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4b9a82"/><stop offset="0.55" stop-color="#2f6a5a"/><stop offset="1" stop-color="#173d34"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3c8a73"/><stop offset="1" stop-color="#1f5446"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.28" cy="0.2" r="0.75">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="url(#glow)"/>
+  <path d="M136 112h240a56 56 0 0 1 56 56v136a56 56 0 0 1-56 56H262l-74 62a10 10 0 0 1-16.400-7.700V360H136a56 56 0 0 1-56-56V168a56 56 0 0 1 56-56z" fill="#0d2a23" opacity="0.22" transform="translate(0 12)"/>
+  <path d="M136 112h240a56 56 0 0 1 56 56v136a56 56 0 0 1-56 56H262l-74 62a10 10 0 0 1-16.400-7.700V360H136a56 56 0 0 1-56-56V168a56 56 0 0 1 56-56z" fill="#fffdf7"/>
+  <g fill="url(#bar)">
+    <rect x="134" y="214" width="30" height="44" rx="15"/>
+    <rect x="187" y="184" width="30" height="104" rx="15"/>
+    <rect x="241" y="156" width="30" height="160" rx="15"/>
+    <rect x="295" y="190" width="30" height="92" rx="15"/>
+    <rect x="348" y="216" width="30" height="40" rx="15"/>
+  </g>
+  <path d="M410 54l11 27 27 11-27 11-11 27-11-27-27-11 27-11z" fill="#f3c969"/>
+</svg>

@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 9;
+const BUILD = 10;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -56,7 +56,18 @@ function dbSave(name) {
   return ok;
 }
 function newId() { return now().toString(36) + "-" + Math.random().toString(36).slice(2, 6); }
-function logAdd(rec) { rec.id = newId(); rec.t = now(); DB.log.push(rec); dbSave("log"); if (typeof syncMark === "function") syncMark(rec.id); return rec; }
+function logAdd(rec) { rec.id = newId(); rec.t = now(); DB.log.push(rec); dbSave("log"); fixAdd(rec); if (typeof syncMark === "function") syncMark(rec.id); return rec; }
+/* 고친 문장 → 내 구문. 틀리게 말한 문장을 보여 주고 바른 문장을 소리 내어 말하게 한다 (간격 반복은 구문과 같다). */
+const FIX_MARK = "틀렸던 말: ";
+function fixOk(a, b) { const w = String(b || "").trim().split(/\s+/).length; return !!a && w >= 3 && w <= 16 && /[A-Za-z]/.test(b) && String(a).trim().toLowerCase() !== String(b).trim().toLowerCase(); }
+function fixAdd(rec) { let n = 0; ((rec && rec.fx) || []).forEach(f => { if (f && fixOk(f.a, f.b) && addMyPhrase(f.b, FIX_MARK + String(f.a).trim())) n++; }); return n; }
+function fixCollect() { let n = 0; DB.log.forEach(r => { n += fixAdd(r); }); return n; }
+function fixList() { return DB.my.filter(p => String(p.ko || "").indexOf(FIX_MARK) === 0); }
+function pickFix(n) {
+  const d = today(), box = p => { const s = DB.srs[p.id]; return s && s.n > 0 ? (s.d <= d ? s.b : 50 + s.b) : -1; };
+  return fixList().slice().sort((x, y) => box(x) - box(y) || y.t - x.t).slice(0, n)
+    .map(p => ({ ref: p.id, task: (DB.srs[p.id] && DB.srs[p.id].n > 0) ? "recall" : "shadow", ko: p.ko, en: p.en, focus: "" }));
+}
 /* 이전 버전(v1~v5) 기록을 옮겨 온다. 원본(ec_history)은 지우지 않는다. */
 function migrate() {
   if (store.get("ec6_migrated")) return 0;
