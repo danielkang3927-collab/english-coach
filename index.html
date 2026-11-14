@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="ec-build" content="1">
+<title>영어 말하기 코치</title>
+<style>
+:root{
+  --bg:#f6f5f1; --card:#ffffff; --ink:#1d1f23; --sub:#5d636e; --line:#e2e0d9;
+  --brand:#2f5d50; --brand-ink:#ffffff; --good:#2e7d4f; --mid:#b7791f; --bad:#c0392b; --chip:#eef1ee;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#15171a; --card:#1e2125; --ink:#eceef1; --sub:#a2a9b4; --line:#30343a;
+    --brand:#6fb7a0; --brand-ink:#10231d; --good:#63c58a; --mid:#e0ac4f; --bad:#f07a6b; --chip:#272b30; }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif}
+.ec-wrap{max-width:720px;margin:0 auto;padding:14px 14px 80px}
+.ec-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:4px 2px 12px}
+.ec-head h1{font-size:20px;margin:0}
+.ec-ver{font-size:12px;color:var(--sub)}
+.ec-tabs{display:flex;gap:6px;margin-bottom:12px}
+.ec-tab{flex:1;padding:10px 6px;border:1px solid var(--line);background:var(--card);color:var(--sub);border-radius:10px;font:inherit;font-size:15px}
+.ec-tab[aria-selected="true"]{background:var(--brand);color:var(--brand-ink);border-color:var(--brand);font-weight:600}
+.ec-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.ec-card h2{font-size:16px;margin:0 0 8px}
+.ec-sub{color:var(--sub);font-size:14px}
+.ec-seg{display:flex;gap:6px;margin-bottom:10px}
+.ec-seg button{flex:1;padding:9px 6px;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:9px;font:inherit;font-size:15px}
+.ec-seg button[aria-pressed="true"]{border-color:var(--brand);color:var(--brand);font-weight:600}
+.ec-list{display:flex;flex-direction:column;gap:6px}
+.ec-item{text-align:left;padding:10px 12px;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:10px;font:inherit;font-size:15px}
+.ec-item[aria-pressed="true"]{border-color:var(--brand);background:var(--chip)}
+.ec-item small{display:block;color:var(--sub);font-size:12px;margin-bottom:2px}
+.ec-task{font-size:18px;line-height:1.5;padding:12px;border-radius:10px;background:var(--chip);margin:10px 0}
+textarea,input[type=text],input[type=password],select{width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font:inherit}
+textarea{min-height:110px;resize:vertical}
+label{display:block;font-size:14px;color:var(--sub);margin:10px 0 4px}
+.ec-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ec-btn{padding:12px 16px;border-radius:11px;border:1px solid var(--brand);background:var(--brand);color:var(--brand-ink);font:inherit;font-weight:600}
+.ec-btn.ghost{background:transparent;color:var(--brand)}
+.ec-btn.rec{width:100%;font-size:18px;padding:16px}
+.ec-btn.rec.on{background:var(--bad);border-color:var(--bad);color:#fff}
+.ec-btn:disabled{opacity:.5}
+.ec-live{min-height:1.6em;margin-top:10px;color:var(--sub);font-size:15px}
+.ec-msg{margin-top:10px;padding:10px 12px;border-radius:9px;font-size:14px;background:var(--chip)}
+.ec-msg.err{border:1px solid var(--bad);color:var(--bad);background:transparent}
+.ec-scores{display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px;margin:8px 0}
+.ec-score{border:1px solid var(--line);border-radius:10px;padding:8px;text-align:center}
+.ec-score b{display:block;font-size:24px;line-height:1.2}
+.ec-score span{font-size:12px;color:var(--sub)}
+.s-good{color:var(--good)} .s-mid{color:var(--mid)} .s-bad{color:var(--bad)}
+.ec-words{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}
+.ec-word{padding:4px 8px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--ink);font:inherit;font-size:16px}
+.ec-word.w-good{border-color:transparent;background:var(--chip)}
+.ec-word.w-mid{border-color:var(--mid);color:var(--mid)}
+.ec-word.w-bad{border-color:var(--bad);color:var(--bad);font-weight:600}
+.ec-word.w-omit{border-style:dashed;color:var(--sub);text-decoration:line-through}
+.ec-word.w-flag::after{content:"·";color:var(--mid);margin-left:2px;font-weight:700}
+.ec-word[aria-pressed="true"]{outline:2px solid var(--brand)}
+.ec-detail{border-top:1px solid var(--line);margin-top:8px;padding-top:8px;font-size:14px}
+.ec-ph{display:inline-block;margin:2px 4px 2px 0;padding:2px 7px;border-radius:6px;background:var(--chip);font-family:"Segoe UI","Lucida Sans Unicode","Noto Sans",sans-serif}
+table.ec-t{width:100%;border-collapse:collapse;font-size:14px}
+table.ec-t th,table.ec-t td{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.ec-hide{display:none !important}
+.ec-note{font-size:13px;color:var(--sub);margin-top:6px}
+ol.ec-steps{padding-left:20px;margin:6px 0}
+ol.ec-steps li{margin-bottom:6px}
+</style>
+</head>
+<body>
+<div class="ec-wrap">
+  <div class="ec-head">
+    <h1>영어 말하기 코치</h1>
+    <span class="ec-ver" id="ecVer"></span>
+  </div>
+
+  <div class="ec-tabs" role="tablist">
+    <button class="ec-tab" role="tab" data-act="tab" data-tab="practice" aria-selected="true">연습</button>
+    <button class="ec-tab" role="tab" data-act="tab" data-tab="history" aria-selected="false">기록</button>
+    <button class="ec-tab" role="tab" data-act="tab" data-tab="setup" aria-selected="false">설정·안내</button>
+  </div>
+
+  <!-- 연습 -->
+  <section id="tab-practice">
+    <div class="ec-card">
+      <div class="ec-seg">
+        <button data-act="mode" data-mode="speak" aria-pressed="true">말하기 (질문에 답하기)</button>
+        <button data-act="mode" data-mode="read" aria-pressed="false">읽기 (원고 낭독)</button>
+      </div>
+      <div class="ec-list" id="ecChoices"></div>
+      <div id="ecCustomBox" class="ec-hide">
+        <label for="ecCustom">읽을 영어 원고를 붙여 넣으세요 (성경 본문, 설교 원고 등)</label>
+        <textarea id="ecCustom" placeholder="Paste your English text here."></textarea>
+      </div>
+      <div class="ec-task" id="ecTask"></div>
+      <button class="ec-btn rec" id="ecRec" data-act="rec">말하기 시작</button>
+      <div class="ec-live" id="ecLive" aria-live="polite"></div>
+      <div id="ecMsg"></div>
+    </div>
+
+    <div class="ec-card ec-hide" id="ecResult">
+      <h2>결과</h2>
+      <div class="ec-scores" id="ecScores"></div>
+      <div class="ec-sub" id="ecPace"></div>
+      <h2 style="margin-top:14px">단어별 발음 <span class="ec-sub">(단어를 누르면 소리별 점수)</span></h2>
+      <div class="ec-words" id="ecWords"></div>
+      <div class="ec-detail ec-hide" id="ecDetail"></div>
+      <h2 style="margin-top:14px">약한 소리</h2>
+      <div id="ecWeak"></div>
+      <h2 style="margin-top:14px">억양·끊어 읽기</h2>
+      <div id="ecProsody" class="ec-sub"></div>
+      <div class="ec-row" style="margin-top:14px">
+        <button class="ec-btn" data-act="copy">결과 복사 (Claude에게 붙여 넣기)</button>
+        <button class="ec-btn ghost" data-act="again">다시 하기</button>
+      </div>
+      <div class="ec-note" id="ecCopyNote"></div>
+      <textarea id="ecCopyArea" class="ec-hide" readonly></textarea>
+    </div>
+  </section>
+
+  <!-- 기록 -->
+  <section id="tab-history" class="ec-hide">
+    <div class="ec-card">
+      <h2>연습 기록</h2>
+      <div class="ec-note">기록은 이 기기의 이 브라우저에만 저장됩니다. 브라우저 자료를 지우거나 오래 쓰지 않으면 사라질 수 있으니, 남겨 둘 기록은 「기록 전체 복사」로 따로 보관하세요.</div>
+      <div id="ecHist" style="margin-top:8px"></div>
+      <div class="ec-row" style="margin-top:12px">
+        <button class="ec-btn ghost" data-act="copyhist">기록 전체 복사</button>
+      </div>
+      <div class="ec-note" id="ecHistNote"></div>
+      <textarea id="ecHistArea" class="ec-hide" readonly></textarea>
+    </div>
+  </section>
+
+  <!-- 설정·안내 -->
+  <section id="tab-setup" class="ec-hide">
+    <div class="ec-card">
+      <h2>발음 평가 연결</h2>
+      <div class="ec-sub">마이크로소프트 음성 서비스(Azure Speech)의 이용 키와 지역을 넣어야 채점이 됩니다. 키는 이 기기에서 마이크로소프트로만 전송됩니다.</div>
+      <label for="ecKey">이용 키 (KEY 1)</label>
+      <input type="password" id="ecKey" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <label for="ecRegion">지역 (예: koreacentral, eastus)</label>
+      <input type="text" id="ecRegion" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="koreacentral">
+      <label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" id="ecRemember"> 이 기기에 키를 기억하기</label>
+      <label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" id="ecProsodyOn" checked> 억양 평가 켜기 (미국식 영어 전용)</label>
+      <div class="ec-row" style="margin-top:12px">
+        <button class="ec-btn" data-act="savekey">저장</button>
+        <button class="ec-btn ghost" data-act="clearkey">키 지우기</button>
+      </div>
+      <div id="ecKeyMsg"></div>
+    </div>
+    <div class="ec-card">
+      <h2>사용법</h2>
+      <ol class="ec-steps">
+        <li>위에 이용 키와 지역을 넣고 저장합니다.</li>
+        <li>「연습」에서 말하기 또는 읽기를 고르고 「말하기 시작」을 누릅니다. 처음에는 마이크 허용을 묻습니다.</li>
+        <li>다 말했으면 「끝내고 채점」을 누릅니다. 한 번에 최대 3분까지 녹음됩니다.</li>
+        <li>결과에서 붉은 단어를 눌러 어떤 소리가 낮았는지 봅니다.</li>
+        <li>「결과 복사」를 눌러 Claude 대화에 붙여 넣으면 문법·표현 교정과 다음 연습 계획을 받을 수 있습니다.</li>
+      </ol>
+      <div class="ec-note">점수 읽는 법: 80점 이상 좋음, 60~79점 보완 필요, 60점 미만 집중 연습. 「종합」은 이 앱이 정확도·유창성·억양(읽기는 완성도 포함)에서 가장 낮은 점수에 무게를 더 두어 계산한 참고값입니다. 문법과 어휘는 이 점수에 들어 있지 않습니다.</div>
+    </div>
+  </section>
+</div>
+
+<script src="speech-sdk.js"></script>
+<script>
+(function(){
+"use strict";
+var BUILD = 1;
+var MAX_SEC = 180;
+var $ = function(id){ return document.getElementById(id); };
+var store = {
+  get: function(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
+  set: function(k,v){ try{ localStorage.setItem(k,v); return true; }catch(e){ return false; } },
+  del: function(k){ try{ localStorage.removeItem(k); }catch(e){} }
+};
+
+var PROMPTS = [
+  {tag:"1단계 · 일상", q:"Please tell me about yourself and your family. What does a normal day look like for you?"},
+  {tag:"2단계 · 생활 소통", q:"You have just moved to a new town. Ask a neighbor for help finding a doctor, a market, and a school for your children."},
+  {tag:"3단계 · 간증", q:"How did you come to know Jesus? Share your testimony in about one minute."},
+  {tag:"4단계 · 예배 인도", q:"Welcome the congregation, lead them into worship, and invite them to pray."},
+  {tag:"5단계 · 설교", q:"Explain John 3:16 to someone who has never heard the gospel. Speak for about one minute."}
+];
+var READINGS = [
+  {tag:"예배로의 부름", t:"Good morning, and welcome. We have come from many places this week, carrying many things. Some of us are tired. Some of us are thankful. All of us are welcome here. Let us quiet our hearts and remember that God is with us. Come, let us worship the Lord together."},
+  {tag:"기도", t:"Let us pray. Gracious Father, thank you for bringing us together today. Thank you for your love that never lets us go. Forgive us where we have failed, and fill us again with your Spirit. Open our ears to hear your word, and open our hearts to obey it. In the name of Jesus we pray. Amen."},
+  {tag:"설교 도입", t:"This morning I want to tell you about a woman who had no name. In her village, people called her by her husband's name or her child's name, but never her own. Then one day someone taught her to read, and she learned that God had called her by name. That day she discovered who she was. Friends, God knows your name too."},
+  {tag:"축도", t:"Now go in peace. May the grace of the Lord Jesus Christ, the love of God, and the fellowship of the Holy Spirit be with you all, today and always. Amen."},
+  {tag:"발음 집중 (r·l·th·f·v)", t:"The Lord is faithful through every valley. He leads us with truth and love. Three things remain: faith, hope, and love. Really, there is nothing that our Father will not forgive."},
+  {tag:"직접 넣기", t:"", custom:true}
+];
+
+var S = { tab:"practice", mode:"speak", pick:0, state:"idle", rec:null, segs:[], timer:null, t0:0, last:null, sel:-1, failed:null };
+
+/* ---------- 화면 그리기 ---------- */
+function esc(s){ return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
+function cls(n){ return n==null ? "" : (n>=80?"s-good":(n>=60?"s-mid":"s-bad")); }
+function r0(n){ return n==null||isNaN(n) ? "–" : String(Math.round(n)); }
+
+function drawTabs(){
+  ["practice","history","setup"].forEach(function(t){
+    $("tab-"+t).classList.toggle("ec-hide", S.tab!==t);
+  });
+  var tabs=document.querySelectorAll(".ec-tab");
+  for(var i=0;i<tabs.length;i++) tabs[i].setAttribute("aria-selected", String(tabs[i].getAttribute("data-tab")===S.tab));
+  if(S.tab==="history") drawHistory();
+}
+function items(){ return S.mode==="speak" ? PROMPTS : READINGS; }
+function drawChoices(){
+  var segs=document.querySelectorAll('[data-act="mode"]');
+  for(var i=0;i<segs.length;i++) segs[i].setAttribute("aria-pressed", String(segs[i].getAttribute("data-mode")===S.mode));
+  var list=items(), h="";
+  for(var j=0;j<list.length;j++){
+    h+='<button class="ec-item" data-act="pick" data-i="'+j+'" aria-pressed="'+(j===S.pick)+'"><small>'+esc(list[j].tag)+'</small>'+
+       esc(S.mode==="speak" ? list[j].q : (list[j].custom ? "내 원고를 붙여 넣어 읽기" : list[j].t.slice(0,46)+"…"))+'</button>';
+  }
+  $("ecChoices").innerHTML=h;
+  var it=list[S.pick];
+  var custom = S.mode==="read" && it.custom;
+  $("ecCustomBox").classList.toggle("ec-hide", !custom);
+  $("ecTask").classList.toggle("ec-hide", custom);
+  $("ecTask").textContent = S.mode==="speak" ? it.q : it.t;
+  drawRec();
+}
+function drawRec(){
+  var b=$("ecRec");
+  b.classList.toggle("on", S.state==="rec");
+  b.disabled = (S.state==="busy");
+  if(S.state==="rec") b.textContent="끝내고 채점 ("+fmtSec((Date.now()-S.t0)/1000)+")";
+  else if(S.state==="busy") b.textContent="채점하는 중…";
+  else b.textContent = S.mode==="speak" ? "말하기 시작" : "읽기 시작";
+}
+function fmtSec(s){ s=Math.max(0,Math.floor(s)); return Math.floor(s/60)+":"+("0"+(s%60)).slice(-2); }
+function msg(text, err){ $("ecMsg").innerHTML = text ? '<div class="ec-msg'+(err?' err':'')+'">'+esc(text)+'</div>' : ""; }
+
+/* ---------- 설정 ---------- */
+var mem = { key:"", region:"" };
+function loadSetup(){
+  var k=store.get("ec_key"), r=store.get("ec_region");
+  if(k){ mem.key=k; $("ecRemember").checked=true; }
+  if(r){ mem.region=r; }
+  $("ecKey").value=mem.key; $("ecRegion").value=mem.region;
+  $("ecProsodyOn").checked = store.get("ec_prosody")!=="off";
+}
+function saveSetup(){
+  mem.key=$("ecKey").value.trim();
+  mem.region=$("ecRegion").value.trim().toLowerCase().replace(/\s+/g,"");
+  $("ecRegion").value=mem.region;
+  store.set("ec_prosody", $("ecProsodyOn").checked ? "on":"off");
+  var note;
+  if(!mem.key || !mem.region){ note="키와 지역을 모두 넣어 주세요."; setKeyMsg(note,true); return; }
+  store.set("ec_region", mem.region);
+  if($("ecRemember").checked){
+    note = store.set("ec_key", mem.key) ? "저장했습니다. 키를 이 기기에 기억합니다." : "이 브라우저가 저장을 막아, 이번에 열어 둔 동안만 씁니다.";
+  } else { store.del("ec_key"); note="저장했습니다. 키는 이 화면을 닫으면 지워집니다."; }
+  setKeyMsg(note,false);
+}
+function clearSetup(){ mem.key=""; store.del("ec_key"); $("ecKey").value=""; $("ecRemember").checked=false; setKeyMsg("키를 지웠습니다.",false); }
+function setKeyMsg(t,err){ $("ecKeyMsg").innerHTML='<div class="ec-msg'+(err?' err':'')+'">'+esc(t)+'</div>'; }
+
+/* ---------- 녹음·채점 ---------- */
+function refText(){
+  if(S.mode!=="read") return "";
+  var it=READINGS[S.pick];
+  return (it.custom ? $("ecCustom").value : it.t).replace(/\s+/g," ").trim();
+}
+function start(){
+  var sdk=window.SpeechSDK;
+  msg("");
+  if(!sdk){ msg("음성 라이브러리를 불러오지 못했습니다. 화면을 새로 고쳐 주세요.", true); return; }
+  if(!mem.key || !mem.region){ msg("먼저 「설정·안내」에서 이용 키와 지역을 넣어 주세요.", true); return; }
+  var ref=refText();
+  if(S.mode==="read" && !ref){ msg("읽을 원고를 먼저 붙여 넣어 주세요.", true); return; }
+  S.segs=[]; S.failed=null; S.ref=ref;
+  S.title = S.mode==="speak" ? PROMPTS[S.pick].q : READINGS[S.pick].tag;
+  $("ecResult").classList.add("ec-hide");
+  $("ecLive").textContent="";
+  var rec;
+  try{
+    var sc=sdk.SpeechConfig.fromSubscription(mem.key, mem.region);
+    sc.speechRecognitionLanguage="en-US";
+    var ac=sdk.AudioConfig.fromDefaultMicrophoneInput();
+    var pc=new sdk.PronunciationAssessmentConfig(ref, sdk.PronunciationAssessmentGradingSystem.HundredMark, sdk.PronunciationAssessmentGranularity.Phoneme, false);
+    pc.phonemeAlphabet="IPA";
+    pc.enableProsodyAssessment = !!$("ecProsodyOn").checked;
+    rec=new sdk.SpeechRecognizer(sc, ac);
+    pc.applyTo(rec);
+  }catch(e){ msg("시작하지 못했습니다: "+(e&&e.message?e.message:e), true); return; }
+  S.rec=rec;
+  var live=[];
+  rec.recognizing=function(_,e){ if(S.rec!==rec) return; $("ecLive").textContent=(live.join(" ")+" "+(e.result&&e.result.text||"")).trim(); };
+  rec.recognized=function(_,e){
+    if(S.rec!==rec) return;
+    try{
+      if(e.result && e.result.reason===sdk.ResultReason.RecognizedSpeech){
+        var j=JSON.parse(e.result.properties.getProperty(sdk.PropertyId.SpeechServiceResponse_JsonResult));
+        if(j && j.NBest && j.NBest[0]){ S.segs.push(j); live.push(e.result.text||""); $("ecLive").textContent=live.join(" "); }
+      }
+    }catch(err){}
+  };
+  rec.canceled=function(_,e){
+    if(S.rec!==rec) return;
+    if(e.reason===sdk.CancellationReason.Error){
+      S.failed=explain(sdk, e.errorCode, e.errorDetails);
+      finish(rec);
+    }
+  };
+  S.state="busy"; drawRec();
+  rec.startContinuousRecognitionAsync(function(){
+    if(S.rec!==rec) return;
+    S.state="rec"; S.t0=Date.now(); drawRec();
+    S.timer=setInterval(function(){
+      if(S.state!=="rec") return;
+      drawRec();
+      if((Date.now()-S.t0)/1000>=MAX_SEC) stop();
+    },500);
+  }, function(err){
+    if(S.rec!==rec) return;
+    S.failed=explainStart(String(err));
+    finish(rec);
+  });
+}
+function stop(){
+  var rec=S.rec; if(!rec || S.state!=="rec") return;
+  S.dur=(Date.now()-S.t0)/1000;
+  S.state="busy"; drawRec();
+  var done=false, fin=function(){ if(done) return; done=true; finish(rec); };
+  try{ rec.stopContinuousRecognitionAsync(fin, fin); }catch(e){ fin(); }
+  setTimeout(fin, 8000);
+}
+function finish(rec){
+  if(S.rec!==rec) return;
+  S.rec=null;
+  if(S.timer){ clearInterval(S.timer); S.timer=null; }
+  try{ rec.close(); }catch(e){}
+  S.state="idle"; drawRec();
+  if(S.failed){ msg(S.failed, true); if(!S.segs.length) return; }
+  if(!S.segs.length){ msg("알아들은 말이 없습니다. 마이크 가까이에서 조금 더 크게 말해 보세요.", true); return; }
+  var R=build(S.segs, S.mode, S.ref, S.title, S.dur);
+  S.last=R; S.sel=-1;
+  drawResult(R);
+  saveHistory(R);
+}
+function explain(sdk, code, details){
+  var name=(sdk.CancellationErrorCode && sdk.CancellationErrorCode[code]) || "";
+  var d=String(details||"");
+  if(name==="AuthenticationFailure" || /401|Unauthorized/i.test(d)) return "이용 키 또는 지역이 맞지 않습니다. 「설정·안내」에서 다시 확인해 주세요.";
+  if(name==="Forbidden" || /403|quota/i.test(d)) return "이 키로는 지금 쓸 수 없습니다. 무료 한도를 다 썼거나 권한이 없는 상태입니다.";
+  if(name==="TooManyRequests" || /429/.test(d)) return "요청이 너무 많습니다. 잠시 뒤에 다시 해 주세요.";
+  if(name==="ConnectionFailure" || name==="ServiceTimeout") return "음성 서비스에 연결하지 못했습니다. 이용 키와 지역 이름이 맞는지, 인터넷이 연결되어 있는지 확인해 주세요.";
+  return "채점 중 오류가 났습니다. ("+(name||"오류")+") "+d.slice(0,140);
+}
+function explainStart(e){
+  if(/NotAllowed|Permission|denied/i.test(e)) return "마이크 사용이 허용되지 않았습니다. 브라우저 설정에서 이 사이트의 마이크를 허용해 주세요.";
+  if(/NotFound|no.*microphone|Requested device/i.test(e)) return "마이크를 찾지 못했습니다.";
+  return "녹음을 시작하지 못했습니다. "+e.slice(0,140);
+}
+
+/* ---------- 결과 계산 ---------- */
+function norm(w){ return String(w||"").toLowerCase().replace(/[^a-z0-9']/g,""); }
+function build(segs, mode, ref, title, dur){
+  var words=[], fl=0, flw=0, pros=[], text=[];
+  segs.forEach(function(s){
+    var nb=s.NBest[0], pa=nb.PronunciationAssessment||{};
+    var d=(s.Duration||0)/1e7 || 1;
+    if(typeof pa.FluencyScore==="number"){ fl+=pa.FluencyScore*d; flw+=d; }
+    if(typeof pa.ProsodyScore==="number") pros.push(pa.ProsodyScore);
+    text.push(nb.Display||s.DisplayText||"");
+    (nb.Words||[]).forEach(function(w){
+      var p=w.PronunciationAssessment||{}, f=(p.Feedback&&p.Feedback.Prosody)||{};
+      var br=f.Break||{}, into=f.Intonation||{};
+      var types=[].concat(br.ErrorTypes||[], into.ErrorTypes||[]).filter(function(x){return x && x!=="None";});
+      if(types.indexOf("UnexpectedBreak")<0 && br.UnexpectedBreak && br.UnexpectedBreak.Confidence>=0.75) types.push("UnexpectedBreak");
+      if(types.indexOf("MissingBreak")<0 && br.MissingBreak && br.MissingBreak.Confidence>=0.75) types.push("MissingBreak");
+      words.push({
+        w:w.Word, acc:(typeof p.AccuracyScore==="number"?p.AccuracyScore:null), err:p.ErrorType||"None",
+        off:(w.Offset||0)/1e7, dur:(w.Duration||0)/1e7, flags:types,
+        syl:(w.Syllables||[]).map(function(x){return {s:x.Syllable, a:(x.PronunciationAssessment||{}).AccuracyScore};}),
+        ph:(w.Phonemes||[]).map(function(x){return {p:x.Phoneme, a:(x.PronunciationAssessment||{}).AccuracyScore};})
+      });
+    });
+  });
+  var spoken=words.filter(function(w){return w.err!=="Omission";});
+  var scored=spoken.filter(function(w){return w.acc!=null && w.err!=="Insertion";});
+  var acc=scored.length ? scored.reduce(function(a,w){return a+w.acc;},0)/scored.length : null;
+  var fluency=flw?fl/flw:null;
+  var prosody=pros.length?pros.reduce(function(a,b){return a+b;},0)/pros.length:null;
+  var comp=null, omitted=[], display=spoken.map(function(w){return {k:"w", x:w};});
+  if(mode==="read" && ref){
+    var al=align(ref.split(" "), spoken);
+    comp=al.refCount?100*al.matched/al.refCount:null; omitted=al.omitted; display=al.display;
+  }
+  var parts=[acc,fluency,prosody,comp].filter(function(x){return x!=null;}).sort(function(a,b){return a-b;});
+  var overall=null;
+  if(parts.length===1) overall=parts[0];
+  else if(parts.length>1){ var rest=0.6/(parts.length-1); overall=parts[0]*0.4; for(var i=1;i<parts.length;i++) overall+=parts[i]*rest; }
+  /* 속도와 멈춤 */
+  var span=0, pauses=0, longest=0;
+  if(spoken.length){
+    var t0=spoken[0].off, t1=spoken[spoken.length-1].off+spoken[spoken.length-1].dur;
+    span=Math.max(0,t1-t0);
+    for(var k=1;k<spoken.length;k++){
+      var gap=spoken[k].off-(spoken[k-1].off+spoken[k-1].dur);
+      if(gap>=0.5){ pauses++; if(gap>longest) longest=gap; }
+    }
+  }
+  var wpm=span>2 ? spoken.length/(span/60) : null;
+  /* 약한 소리 */
+  var map={};
+  scored.forEach(function(w){ w.ph.forEach(function(p){
+    if(typeof p.a!=="number" || !p.p) return;
+    var m=map[p.p]||(map[p.p]={p:p.p,sum:0,n:0,ex:[]}); m.sum+=p.a; m.n++; m.ex.push({w:w.w,a:p.a});
+  });});
+  var weak=Object.keys(map).map(function(k){ var m=map[k]; m.avg=m.sum/m.n; m.ex.sort(function(a,b){return a.a-b.a;}); var seen={}; m.ex=m.ex.filter(function(e){ var k=norm(e.w); if(seen[k]) return false; seen[k]=1; return true; }); return m; })
+    .filter(function(m){ return (m.n>=2 && m.avg<80) || m.avg<60; }).sort(function(a,b){return a.avg-b.avg;}).slice(0,8);
+  var low=scored.filter(function(w){return w.acc<60;}).sort(function(a,b){return a.acc-b.acc;});
+  var ub=spoken.filter(function(w){return w.flags.indexOf("UnexpectedBreak")>=0;});
+  var mb=spoken.filter(function(w){return w.flags.indexOf("MissingBreak")>=0;});
+  var mono=spoken.length>0 && spoken.filter(function(w){return w.flags.indexOf("Monotone")>=0;}).length>=spoken.length*0.5;
+  return { t:Date.now(), mode:mode, title:title, ref:ref, text:text.join(" ").trim(), dur:Math.max(dur||0, span),
+    acc:acc, fluency:fluency, prosody:prosody, comp:comp, overall:overall, wpm:wpm, pauses:pauses, longest:longest,
+    n:spoken.length, display:display, weak:weak, low:low, omitted:omitted, ub:ub, mb:mb, mono:mono };
+}
+/* 원고와 말한 단어 맞추기 (가장 긴 공통 순서) */
+function align(refWords, spoken){
+  var a=refWords.map(norm).filter(Boolean), raw=refWords.filter(function(w){return norm(w);});
+  var b=spoken.map(function(w){return norm(w.w);});
+  var n=a.length, m=b.length, i, j, L=[];
+  for(i=0;i<=n;i++){ L.push(new Array(m+1).fill(0)); }
+  for(i=n-1;i>=0;i--) for(j=m-1;j>=0;j--) L[i][j] = a[i]===b[j] ? L[i+1][j+1]+1 : Math.max(L[i+1][j], L[i][j+1]);
+  var display=[], omitted=[], matched=0; i=0; j=0;
+  while(i<n && j<m){
+    if(a[i]===b[j]){ display.push({k:"w",x:spoken[j]}); matched++; i++; j++; }
+    else if(L[i+1][j]>=L[i][j+1]){ display.push({k:"omit",w:raw[i]}); omitted.push(raw[i]); i++; }
+    else { display.push({k:"ins",x:spoken[j]}); j++; }
+  }
+  for(;i<n;i++){ display.push({k:"omit",w:raw[i]}); omitted.push(raw[i]); }
+  for(;j<m;j++){ display.push({k:"ins",x:spoken[j]}); }
+  return {display:display, omitted:omitted, matched:matched, refCount:n};
+}
+
+function drawResult(R){
+  var sc=[["종합",R.overall],["정확도",R.acc],["유창성",R.fluency],["억양",R.prosody]];
+  if(R.mode==="read") sc.push(["완성도",R.comp]);
+  $("ecScores").innerHTML=sc.map(function(x){ return '<div class="ec-score"><b class="'+cls(x[1])+'">'+r0(x[1])+'</b><span>'+x[0]+'</span></div>'; }).join("");
+  var pace=[];
+  pace.push("길이 "+fmtSec(R.dur)+" · 단어 "+R.n+"개");
+  if(R.wpm!=null) pace.push("분당 "+Math.round(R.wpm)+"단어");
+  pace.push("0.5초 넘는 멈춤 "+R.pauses+"회"+(R.pauses?" (가장 긴 멈춤 "+R.longest.toFixed(1)+"초)":""));
+  $("ecPace").textContent=pace.join(" · ");
+  var h="";
+  R.display.forEach(function(d,i){
+    if(d.k==="omit"){ h+='<span class="ec-word w-omit" title="빠뜨림">'+esc(d.w)+'</span>'; return; }
+    var w=d.x, c=w.acc==null?"":(w.acc>=80?"w-good":(w.acc>=60?"w-mid":"w-bad"));
+    h+='<button class="ec-word '+c+(w.flags.length?" w-flag":"")+'" data-act="word" data-i="'+i+'" aria-pressed="'+(i===S.sel)+'">'+esc(w.w)+(d.k==="ins"?" <small>(원고에 없음)</small>":"")+'</button>';
+  });
+  $("ecWords").innerHTML=h;
+  drawDetail(R);
+  if(R.weak.length){
+    $("ecWeak").innerHTML='<table class="ec-t"><tr><th>소리</th><th>평균</th><th>낮게 나온 단어</th></tr>'+R.weak.map(function(m){
+      return '<tr><td><span class="ec-ph">/'+esc(m.p)+'/</span></td><td class="'+cls(m.avg)+'">'+r0(m.avg)+'</td><td>'+esc(m.ex.slice(0,3).map(function(e){return e.w+"("+Math.round(e.a)+")";}).join(", "))+'</td></tr>';
+    }).join("")+'</table>';
+  } else $("ecWeak").innerHTML='<div class="ec-sub">두드러지게 약한 소리는 없었습니다.</div>';
+  var p=[];
+  if(R.prosody==null) p.push("억양 점수를 받지 못했습니다. 억양 평가가 꺼져 있거나, 쓰는 요금제에서 지원하지 않을 수 있습니다.");
+  else {
+    p.push(R.mono ? "전체적으로 높낮이 변화가 적다고 표시되었습니다(단조로움)." : "단조롭다는 표시는 없었습니다.");
+    p.push(R.ub.length ? "어색하게 끊긴 곳 "+R.ub.length+"곳: "+R.ub.slice(0,8).map(function(w){return w.w;}).join(", ") : "어색하게 끊긴 곳은 표시되지 않았습니다.");
+    if(R.mb.length) p.push("쉬어야 하는데 이어 읽은 곳 "+R.mb.length+"곳: "+R.mb.slice(0,8).map(function(w){return w.w;}).join(", "));
+  }
+  $("ecProsody").innerHTML=p.map(esc).join("<br>");
+  $("ecCopyNote").textContent=""; $("ecCopyArea").classList.add("ec-hide");
+  $("ecResult").classList.remove("ec-hide");
+}
+function drawDetail(R){
+  var box=$("ecDetail"), d=R.display[S.sel];
+  if(!d || d.k==="omit"){ box.classList.add("ec-hide"); box.innerHTML=""; return; }
+  var w=d.x, h='<b>'+esc(w.w)+'</b> · 정확도 <span class="'+cls(w.acc)+'">'+r0(w.acc)+'</span>';
+  if(w.flags.length) h+=' · '+esc(w.flags.map(flagName).join(", "));
+  if(w.syl.length) h+='<div style="margin-top:6px">음절: '+w.syl.map(function(s){return '<span class="ec-ph">'+esc(s.s)+' <span class="'+cls(s.a)+'">'+r0(s.a)+'</span></span>';}).join("")+'</div>';
+  if(w.ph.length) h+='<div style="margin-top:6px">소리: '+w.ph.map(function(s){return '<span class="ec-ph">/'+esc(s.p)+'/ <span class="'+cls(s.a)+'">'+r0(s.a)+'</span></span>';}).join("")+'</div>';
+  box.innerHTML=h; box.classList.remove("ec-hide");
+}
+function flagName(f){ return {UnexpectedBreak:"어색한 끊김", MissingBreak:"쉼 없음", Monotone:"단조로움", Mispronunciation:"발음 오류"}[f]||f; }
+
+/* ---------- 복사·기록 ---------- */
+function stamp(t){ var d=new Date(t), z=function(n){return ("0"+n).slice(-2);}; return d.getFullYear()+"-"+z(d.getMonth()+1)+"-"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes()); }
+function summary(R){
+  var L=[];
+  L.push("[영어 말하기 코치 결과] "+stamp(R.t)+" · "+(R.mode==="speak"?"말하기":"읽기")+" · 미국식 영어");
+  L.push((R.mode==="speak"?"질문: ":"원고: ")+R.title);
+  L.push("점수: 종합 "+r0(R.overall)+" / 정확도 "+r0(R.acc)+" / 유창성 "+r0(R.fluency)+" / 억양 "+r0(R.prosody)+(R.mode==="read"?" / 완성도 "+r0(R.comp):""));
+  L.push("속도: 길이 "+fmtSec(R.dur)+", 단어 "+R.n+"개"+(R.wpm!=null?", 분당 "+Math.round(R.wpm)+"단어":"")+", 0.5초 넘는 멈춤 "+R.pauses+"회"+(R.pauses?"(가장 긴 멈춤 "+R.longest.toFixed(1)+"초)":""));
+  if(R.mode==="read" && R.ref) L.push("읽은 원고: "+R.ref);
+  L.push("받아 적힌 말: "+R.text);
+  if(R.low.length) L.push("60점 미만 단어: "+R.low.slice(0,20).map(function(w){return w.w+"("+Math.round(w.acc)+")";}).join(", "));
+  if(R.omitted.length) L.push("빠뜨린 단어: "+R.omitted.slice(0,30).join(", "));
+  if(R.weak.length) L.push("약한 소리: "+R.weak.map(function(m){return "/"+m.p+"/ 평균 "+Math.round(m.avg)+" ("+m.ex.slice(0,3).map(function(e){return e.w;}).join(", ")+")";}).join("; "));
+  if(R.prosody!=null) L.push("억양: "+(R.mono?"단조로움 표시 있음":"단조로움 표시 없음")+", 어색한 끊김 "+R.ub.length+"곳"+(R.ub.length?"("+R.ub.slice(0,8).map(function(w){return w.w;}).join(", ")+")":"")+", 쉼 없음 "+R.mb.length+"곳");
+  L.push("요청: 위 결과로 발음·억양·문법·표현을 교정해 주고, 다음에 연습할 것을 알려 주세요.");
+  return L.join("\n");
+}
+function copyText(text, areaId, noteId){
+  var area=$(areaId), note=$(noteId);
+  var fallback=function(){ area.value=text; area.classList.remove("ec-hide"); area.focus(); area.select(); note.textContent="자동 복사가 막혀 있습니다. 위 글을 길게 눌러 전체 선택 후 복사해 주세요."; };
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(function(){ note.textContent="복사했습니다. Claude 대화에 붙여 넣어 주세요."; }, fallback);
+    } else fallback();
+  }catch(e){ fallback(); }
+}
+function readHistory(){ try{ var a=JSON.parse(store.get("ec_history")||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function saveHistory(R){
+  var a=readHistory();
+  a.push({t:R.t, mode:R.mode, title:R.title, overall:R.overall, acc:R.acc, fluency:R.fluency, prosody:R.prosody, comp:R.comp, wpm:R.wpm, pauses:R.pauses, n:R.n});
+  if(a.length>300) a=a.slice(a.length-300);
+  store.set("ec_history", JSON.stringify(a));
+}
+function drawHistory(){
+  var a=readHistory().slice().reverse();
+  if(!a.length){ $("ecHist").innerHTML='<div class="ec-sub">아직 기록이 없습니다.</div>'; return; }
+  $("ecHist").innerHTML='<table class="ec-t"><tr><th>날짜</th><th>내용</th><th>종합</th><th>정확</th><th>유창</th><th>억양</th></tr>'+a.map(function(h){
+    return '<tr><td>'+esc(stamp(h.t).slice(5))+'</td><td>'+(h.mode==="speak"?"말하기":"읽기")+'<br><span class="ec-sub">'+esc(String(h.title).slice(0,28))+'</span></td>'+
+      [h.overall,h.acc,h.fluency,h.prosody].map(function(v){return '<td class="'+cls(v)+'">'+r0(v)+'</td>';}).join("")+'</tr>';
+  }).join("")+'</table>';
+}
+function historyText(){
+  return ["[영어 말하기 코치 연습 기록]"].concat(readHistory().map(function(h){
+    return stamp(h.t)+" · "+(h.mode==="speak"?"말하기":"읽기")+" · "+h.title+" · 종합 "+r0(h.overall)+" / 정확도 "+r0(h.acc)+" / 유창성 "+r0(h.fluency)+" / 억양 "+r0(h.prosody)+(h.wpm!=null?" · 분당 "+Math.round(h.wpm)+"단어":"");
+  })).join("\n");
+}
+
+/* ---------- 누름 처리: 문서 단위로 한 번만 연결 ---------- */
+document.addEventListener("click", function(ev){
+  var el=ev.target.closest ? ev.target.closest("[data-act]") : null;
+  if(!el) return;
+  var act=el.getAttribute("data-act");
+  if(act==="tab"){ S.tab=el.getAttribute("data-tab"); drawTabs(); }
+  else if(act==="mode"){ if(S.state!=="idle") return; S.mode=el.getAttribute("data-mode"); S.pick=0; drawChoices(); }
+  else if(act==="pick"){ if(S.state!=="idle") return; S.pick=Number(el.getAttribute("data-i")); drawChoices(); }
+  else if(act==="rec"){ if(S.state==="idle") start(); else if(S.state==="rec") stop(); }
+  else if(act==="word"){ var i=Number(el.getAttribute("data-i")); S.sel=(S.sel===i?-1:i); if(S.last) drawResult(S.last); }
+  else if(act==="copy"){ if(S.last) copyText(summary(S.last), "ecCopyArea", "ecCopyNote"); }
+  else if(act==="again"){ $("ecResult").classList.add("ec-hide"); msg(""); $("ecLive").textContent=""; window.scrollTo(0,0); }
+  else if(act==="savekey"){ saveSetup(); }
+  else if(act==="clearkey"){ clearSetup(); }
+  else if(act==="copyhist"){ copyText(historyText(), "ecHistArea", "ecHistNote"); }
+});
+
+$("ecVer").textContent="v"+BUILD;
+loadSetup(); drawTabs(); drawChoices();
+if(!mem.key) msg("처음이시면 「설정·안내」에서 이용 키와 지역을 먼저 넣어 주세요.", false);
+window.__ec = { S:S, build:build, summary:summary, align:align };
+})();
+</script>
+</body>
+</html>
