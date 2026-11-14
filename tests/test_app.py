@@ -22,8 +22,10 @@ window.__fakeClip = function(sec, gap){
 };
 window.__fillBatch = function(){ var A=window.__ec.A; A.clips=A.items.map(function(){ return window.__fakeClip(1.2); }); A.i=A.items.length-1; A.phase='shown'; window.__ec.render(); };
 """
+NO_FB = "window.__FB = {apiKey:'', projectId:'', clientId:''};"   # 점검에서는 실제 구글 서버를 부르지 않는다 (s9만 가짜 서버 사용)
 def page(b, viewport=PHONE, init=None, perms=PERMS, fake=None):
-    return new_page(b, t, viewport, HELP + (init or ""), perms, fake)
+    init = init or ""
+    return new_page(b, t, viewport, HELP + (init if "window.__FB" in init else NO_FB + init), perms, fake)
 def shot(pg, name): pg.screenshot(path=os.path.join(OUT, name + ".png"), full_page=True)
 def view(pg, name): pg.screenshot(path=os.path.join(OUT, name + ".png"))
 def calls(pg, mode=None): return ev(pg, "window.__calls.filter(c => c.kind==='gen'" + (" && c.mode==='%s'" % mode if mode else "") + ").map(c => ({model:c.model, mode:c.mode, audio:c.audio, bytes:c.bytes, temp:c.temp, plan:c.plan, mime:c.mime, json:c.json, key:c.key}))")
@@ -692,7 +694,13 @@ ACCT2 = {"sub": "2002", "email": "other@example.com", "name": "다른 사람"}
 def s9(b):
     print("\n== s9 구글 로그인과 기기 사이 이어 쓰기 ==")
     fake = FakeGoogle()
-    ctx, pg, errs = page(b); click(pg, "tab", "set")
+    ctx, pg, errs = page(b)
+    t.check("s9 저장소의 연결 값: 돌아올 주소가 등록한 값과 글자까지 같고, 값 셋이 모두 들어 있음", ev(pg, "(function(){ var real = Object.assign({}, FB); delete window.__FB; return true; })()") and
+            "redirect: \"https://danielkang3927-collab.github.io/english-coach/\"" in open(os.path.join(ROOT, "js/sync.js"), encoding="utf-8").read() and
+            bool(re.search(r'apiKey: "AIza[0-9A-Za-z_-]{35}"', open(os.path.join(ROOT, "js/sync.js"), encoding="utf-8").read())) and
+            bool(re.search(r'clientId: "\d+-[0-9a-z]+\.apps\.googleusercontent\.com"', open(os.path.join(ROOT, "js/sync.js"), encoding="utf-8").read())) and
+            'projectId: "english-coach-3ffba"' in open(os.path.join(ROOT, "js/sync.js"), encoding="utf-8").read())
+    click(pg, "tab", "set")
     t.check("s9 연결 값 전에는 로그인 단추·점검 단추 없음", not has(pg, "login") and not has(pg, "diag") and "연결 값을 넣는 마지막 단계" in text(pg))
     click(pg, "tab", "home"); t.check("s9 연결 값 전에는 홈에도 로그인 안내 없음", not has(pg, "login") and not errs, errs); ctx.close()
 
@@ -878,13 +886,13 @@ def s10(b):
     t.check("s10 채점 중 다른 탭에 가 있어도 끝나면 알림", ev(pg, "window.__ec.U.tab") == "weak" and "선생님 답이 왔습니다" in warn() and "내 약점 지도" in text(pg))
     click(pg, "tab", "train"); t.check("s10 훈련 탭으로 직접 돌아와도 알림은 사라짐", warn() == "" and pg.locator(".ec-turn").count() == 1)
     # 피드백의 약점 표시를 눌러 설명을 보고 돌아오면 보던 자리로
-    ev(pg, "window.scrollTo(0, 700)"); pg.wait_for_timeout(150); y0 = ev(pg, "window.scrollY")
-    pg.locator('#ecMain .ec-turn [data-act="tagOpen"]').first.click()
+    ev(pg, "window.scrollTo(0, 700)"); pg.wait_for_timeout(150)
+    pg.locator('#ecMain .ec-turn [data-act="tagOpen"]').last.click(); y0 = ev(pg, "window.__ec.U.back.y")   # 누르는 순간의 위치
     t.check("s10 약점 표시를 누르면 설명 화면, 돌아가기 단추는 「보던 화면으로」", ev(pg, "window.__ec.U.tab") == "weak" and "왜 틀리나" in text(pg) and "보던 화면으로" in text(pg))
     click(pg, "tagBack"); pg.wait_for_timeout(150)
     t.check("s10 돌아오면 보던 화면의 보던 자리", ev(pg, "window.__ec.U.tab") == "train" and abs(ev(pg, "window.scrollY") - y0) < 5 and y0 > 300 and pg.locator(".ec-turn").count() == 1, (y0, ev(pg, "window.scrollY")))
-    click(pg, "tab", "weak"); ev(pg, "window.scrollTo(0, 400)"); pg.wait_for_timeout(150); y1 = ev(pg, "window.scrollY")
-    pg.locator('#ecMain [data-act="ordOpen"]').nth(3).click(); click(pg, "tagBack"); pg.wait_for_timeout(150)
+    click(pg, "tab", "weak"); ev(pg, "window.scrollTo(0, 400)"); pg.wait_for_timeout(150)
+    pg.locator('#ecMain [data-act="ordOpen"]').nth(3).click(); y1 = ev(pg, "window.__ec.U.back.y"); click(pg, "tagBack"); pg.wait_for_timeout(150)
     t.check("s10 약점 목록에서 들어갔다 나와도 보던 자리", "내 약점 지도" in text(pg) and abs(ev(pg, "window.scrollY") - y1) < 5 and y1 > 200, (y1, ev(pg, "window.scrollY")))
     click(pg, "tab", "train")
     ev(pg, "window.__mock.plan=['slow-403']"); ev(pg, SEND_TALK); click(pg, "tab", "phr"); wait_phase(pg, "fail")
