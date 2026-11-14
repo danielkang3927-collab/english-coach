@@ -5,7 +5,7 @@
 const FB = Object.assign({
   apiKey: "AIzaSyC5L0aBtelJOIIMzRqe7nDIStKoUelDQQo",   /* Firebase 웹 앱의 apiKey (공개 값. 콘솔 화면의 글자를 그대로 옮김) */
   projectId: "english-coach-3ffba",                    /* Firebase 프로젝트 ID */
-  clientId: "",      /* 구글 OAuth 웹 클라이언트 ID (…apps.googleusercontent.com) */
+  clientId: "419523194632-e50n9ovkp5nsdnnrh65dgbhc2i4g2q3d.apps.googleusercontent.com",   /* 구글 OAuth 웹 클라이언트 ID (Web client, auto created by Google Service) */
   redirect: "https://danielkang3927-collab.github.io/english-coach/"   /* 구글 콘솔 「승인된 리디렉션 URI」와 글자까지 같아야 한다 */
 }, window.__FB || {});
 const fbReady = () => !!(FB.apiKey && FB.projectId && FB.clientId);
