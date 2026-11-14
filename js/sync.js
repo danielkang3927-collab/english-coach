@@ -149,13 +149,19 @@ function syncMarkAll() { if (!AUTH.uid || SYNC.ask) return; SYNC.un = DB.log.map
 function syncSoon(ms) { if (!fbReady() || !AUTH.uid || SYNC.ask) return; clearTimeout(SYNC.timer); SYNC.timer = setTimeout(() => { syncNow(); }, ms == null ? 4000 : ms); }
 
 /* 받기: 서버가 찍은 시각(st) 순으로, 지난번에 받은 곳 다음부터. 늦게 올라온 옛 기록도 빠지지 않는다. */
+/* 올리고 받는 요청의 모양은 여기 한 곳에서만 만든다. 연결 점검도 같은 모양으로 실제 서버에 시험해 본다. */
+const logWrite = (coll, id, rec) => ({ update: { name: FS_ROOT() + "/users/" + AUTH.uid + "/" + coll + "/" + id, fields: { t: { integerValue: String(Math.round(rec.t)) }, j: { stringValue: JSON.stringify(rec) } } },
+  updateTransforms: [{ fieldPath: "st", setToServerValue: "REQUEST_TIME" }] });
+const logQuery = (coll, after, incl) => {
+  const q = { from: [{ collectionId: coll }], orderBy: [{ field: { fieldPath: "st" }, direction: "ASCENDING" }], limit: 300 };
+  if (after) q.where = { fieldFilter: { field: { fieldPath: "st" }, op: incl ? "GREATER_THAN_OR_EQUAL" : "GREATER_THAN", value: { timestampValue: after } } };
+  return { structuredQuery: q };
+};
 function pullLog() {
   const have = {}; DB.log.forEach(r => { have[r.id] = 1; });
   let added = 0, mark = SYNC.st;
   const page = (after, incl, guard) => {
-    const q = { from: [{ collectionId: "log" }], orderBy: [{ field: { fieldPath: "st" }, direction: "ASCENDING" }], limit: 300 };
-    if (after) q.where = { fieldFilter: { field: { fieldPath: "st" }, op: incl ? "GREATER_THAN_OR_EQUAL" : "GREATER_THAN", value: { timestampValue: after } } };
-    return fsCall("POST", FS_URL() + "/users/" + AUTH.uid + ":runQuery", { structuredQuery: q }).then(r => {
+    return fsCall("POST", FS_URL() + "/users/" + AUTH.uid + ":runQuery", logQuery("log", after, incl)).then(r => {
       if (!r.ok || !Array.isArray(r.j)) throw fsFail(r, "기록 받기");
       let n = 0, fresh = 0, last = after;
       r.j.forEach(x => {
@@ -182,8 +188,7 @@ function pushLog() {
   const step = i => {
     if (i >= ids.length) return Promise.resolve();
     const part = ids.slice(i, i + 100);
-    const writes = part.map(id => ({ update: { name: FS_ROOT() + "/users/" + AUTH.uid + "/log/" + id, fields: { t: { integerValue: String(Math.round(by[id].t)) }, j: { stringValue: JSON.stringify(by[id]) } } },
-      updateTransforms: [{ fieldPath: "st", setToServerValue: "REQUEST_TIME" }] }));
+    const writes = part.map(id => logWrite("log", id, by[id]));
     return fsCall("POST", FS_URL() + ":commit", { writes }).then(r => {
       if (!r.ok) throw fsFail(r, "기록 올리기");
       const done = {}; part.forEach(id => { done[id] = 1; });
@@ -240,7 +245,14 @@ function diagRun() {
     const path = "users/" + AUTH.uid + "/state/ping", stamp = String(Date.now());
     return authToken(true).then(() => { add(true, "로그인 표: 새로 받았습니다. (" + AUTH.email + ")"); return fsCall("PATCH", FS_URL() + "/" + path, { fields: { t: { stringValue: stamp } } }); })
       .then(r => { if (!r.ok) throw fsFail(r, "쓰기"); add(true, "내 기록 쓰기: 됩니다."); return fsGet(path); })
-      .then(d => { add(d.exists && d.fields.t && d.fields.t.stringValue === stamp, "내 기록 읽기: " + (d.exists ? "됩니다." : "쓴 것이 보이지 않습니다.")); return fsCall("GET", FS_URL() + "/users/_other_/state/main"); })
+      .then(d => { add(d.exists && d.fields.t && d.fields.t.stringValue === stamp, "내 기록 읽기: " + (d.exists ? "됩니다." : "쓴 것이 보이지 않습니다."));
+        return fsCall("POST", FS_URL() + ":commit", { writes: [logWrite("diag", "ping", { id: "ping", t: +stamp })] }); })
+      .then(r => { if (!r.ok) throw fsFail(r, "기록 올리는 방식 시험"); add(true, "기록 올리는 방식: 됩니다. (시험용 자리에만 썼습니다)");
+        return fsCall("POST", FS_URL() + "/users/" + AUTH.uid + ":runQuery", logQuery("diag", "2000-01-01T00:00:00Z", false)); })
+      .then(r => { if (!r.ok || !Array.isArray(r.j)) throw fsFail(r, "기록 받는 방식 시험");
+        const hit = r.j.some(x => { const d = x && x.document, rec = d && d.fields && jparse(d.fields.j && d.fields.j.stringValue); return !!(rec && String(rec.t) === stamp && d.fields.st && d.fields.st.timestampValue); });
+        add(hit, "기록 받는 방식: " + (hit ? "됩니다." : "방금 올린 것이 보이지 않습니다."));
+        return fsCall("GET", FS_URL() + "/users/_other_/state/main"); })
       .then(r => { add(r.status === 403, "남의 기록: " + (r.status === 403 ? "읽을 수 없습니다. (정상)" : "읽힙니다. 규칙을 확인해 주세요. (" + r.status + ")")); return out; })
       .catch(e => { add(false, String(e && e.message || e).slice(0, 160)); return out; });
   });

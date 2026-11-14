@@ -832,9 +832,11 @@ def s9(b):
     fake.reject_id_token = True; login(C, fake, ACCT1)
     t.check("s9 id_token이 거절되면 access_token으로 로그인", ev(C, "AUTH.uid") == "U1001" and fake.idp_requests[-2]["postBody"].startswith("id_token=") and fake.idp_requests[-1]["postBody"].startswith("access_token="))
     fake.reject_id_token = False
-    click(C, "diag"); wait_js(C, "window.__ec.U.diag && window.__ec.U.diag.length >= 7")
+    n_logs = len(fake.logs("U1001"))
+    click(C, "diag"); wait_js(C, "window.__ec.U.diag && window.__ec.U.diag.length >= 9")
     d = ev(C, "window.__ec.U.diag")
     t.check("s9 연결 점검(로그인 뒤): 내 기록 읽기·쓰기, 남의 기록 막힘", all(x["ok"] for x in d) and any("내 기록 쓰기: 됩니다" in x["text"] for x in d) and any("남의 기록: 읽을 수 없습니다" in x["text"] for x in d), d)
+    t.check("s9 연결 점검이 올리고 받는 방식도 시험하되 기록은 건드리지 않음", any("기록 올리는 방식: 됩니다" in x["text"] for x in d) and any("기록 받는 방식: 됩니다" in x["text"] for x in d) and len(fake.logs("U1001")) == n_logs and "users/U1001/diag/ping" in fake.docs, d)
     shot(C, "p31_diag")
     click(C, "syncAll"); wait_js(C, "!SYNC.busy && window.__ec.U.smsg && window.__ec.U.smsg.text.indexOf('처음부터 다시 맞췄습니다') >= 0")
     t.check("s9 처음부터 다시 맞추기", ev(C, "DB.log.length") == len(fake.logs("U1001")) and ev(C, "SYNC.un.length") == 0)
