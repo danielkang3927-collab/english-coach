@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="ec-build" content="3">
+<meta name="ec-build" content="4">
 <title>영어 말하기 코치</title>
 <style>
 :root{
@@ -183,11 +183,12 @@ ol.ec-steps li{margin-bottom:6px}
         <li>아래 주소를 열고 구글 계정으로 로그인합니다.<br><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">https://aistudio.google.com/app/apikey</a></li>
         <li>「API 키 만들기」(Create API key)를 눌러 키를 만들고 복사합니다.</li>
         <li>아래 칸에 붙여 넣고 「저장」을 누릅니다. 키 확인과 모델 선택이 함께 됩니다.</li>
+        <li>좋은 모델부터 쓰다가 무료 한도가 차면 자동으로 다음 모델로 넘어갑니다. 하루 한도는 한국 시간 오후 5시쯤 다시 열립니다.</li>
       </ol>
       <label for="ecGKey">Gemini 이용 키</label>
       <input type="password" id="ecGKey" autocomplete="off" autocapitalize="off" spellcheck="false">
-      <label for="ecGModel">모델</label>
-      <input type="text" id="ecGModel" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="gemini-2.5-flash">
+      <label for="ecGModel">가장 먼저 쓸 모델 (비워 두면 가장 좋은 모델부터 자동)</label>
+      <input type="text" id="ecGModel" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="자동">
       <select id="ecGModelPick" class="ec-hide" style="margin-top:6px"></select>
       <label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" id="ecGRemember"> 이 기기에 키를 기억하기</label>
       <div class="ec-row" style="margin-top:12px">
@@ -196,6 +197,10 @@ ol.ec-steps li{margin-bottom:6px}
         <button class="ec-btn ghost" data-act="gclear">키 지우기</button>
       </div>
       <div id="ecGMsg"></div>
+      <div id="ecGChain"></div>
+      <div class="ec-row" style="margin-top:8px">
+        <button class="ec-btn ghost" data-act="gunblock">한도 기록 지우고 처음 모델부터 다시</button>
+      </div>
       <div class="ec-note">녹음은 이 기기에서 구글로 직접 전송됩니다. 무료 등급에서 보낸 내용은 구글 제품 개선에 쓰일 수 있으니, 성도 이름이나 민감한 이야기는 말하지 마세요. Gemini의 발음 평은 듣고 판단한 참고 의견이며 매번 조금씩 다를 수 있습니다.</div>
     </div>
     <div class="ec-card">
@@ -232,7 +237,7 @@ ol.ec-steps li{margin-bottom:6px}
 <script>
 (function(){
 "use strict";
-var BUILD = 3;
+var BUILD = 4;
 var MAX_SEC = 180;
 var $ = function(id){ return document.getElementById(id); };
 var store = {
@@ -271,6 +276,7 @@ function drawTabs(){
   var tabs=document.querySelectorAll(".ec-tab");
   for(var i=0;i<tabs.length;i++) tabs[i].setAttribute("aria-selected", String(tabs[i].getAttribute("data-tab")===S.tab));
   if(S.tab==="history") drawHistory();
+  if(S.tab==="setup") drawChain();
 }
 function items(){ return S.mode==="speak" ? PROMPTS : READINGS; }
 function drawChoices(){
@@ -610,23 +616,24 @@ var SCENES = [
   {id:"free", name:"자유 주제", open:"Hello! What would you like to talk about today?"}
 ];
 var T = { scene:0, turns:[], says:[], state:"idle", cap:null, timer:null, t0:0, script:"" };
-var gmem = { key:"", model:"" };
+var gmem = { key:"", model:"", chain:[] };
+var gq = { block:{}, dead:{} };
 var G_BASE = "https://generativelanguage.googleapis.com/v1beta/";
-var G_DEFAULT_MODEL = "gemini-2.5-flash";
-var G_PREFER = ["gemini-3.5-flash","gemini-2.5-flash","gemini-3-flash-preview","gemini-2.0-flash"];
 
 /* ---------- Gemini 설정 ---------- */
 function gLoad(){
   var k=store.get("ec_gkey"), m=store.get("ec_gmodel");
   if(k){ gmem.key=k; $("ecGRemember").checked=true; }
-  gmem.model = m || G_DEFAULT_MODEL;
+  gmem.model = m || "";
+  try{ var c=JSON.parse(store.get("ec_gchain")||"[]"); if(Array.isArray(c)) gmem.chain=c; }catch(e){}
+  try{ var q=JSON.parse(store.get("ec_gquota")||"{}"); if(q && typeof q==="object") gq.block=q; }catch(e){}
   $("ecGKey").value=gmem.key; $("ecGModel").value=gmem.model;
   $("ecAutoSpeak").checked = store.get("ec_autospeak")!=="off";
 }
 function gMsg(t,err){ $("ecGMsg").innerHTML='<div class="ec-msg'+(err?' err':'')+'">'+esc(t)+'</div>'; }
 function gSave(){
   gmem.key=$("ecGKey").value.trim();
-  gmem.model=($("ecGModel").value.trim().replace(/^models\//,"")) || G_DEFAULT_MODEL;
+  gmem.model=$("ecGModel").value.trim().replace(/^models\//,"");
   $("ecGModel").value=gmem.model;
   store.set("ec_gmodel", gmem.model);
   if(!gmem.key){ gMsg("Gemini 이용 키를 넣어 주세요.", true); return false; }
@@ -646,40 +653,61 @@ function gErr(status, bodyText){
   return "Gemini 요청이 거절됐습니다. ("+status+") "+m.slice(0,160);
 }
 function gVer(n){ var m=/gemini-(\d+(?:\.\d+)?)/.exec(n); return m?parseFloat(m[1]):0; }
-function gPick(names, avoid){
-  var ok=names.filter(function(n){ return n!==avoid; }), i;
-  if(!avoid && ok.indexOf(gmem.model)>=0) return gmem.model;
-  for(i=0;i<G_PREFER.length;i++) if(ok.indexOf(G_PREFER[i])>=0) return G_PREFER[i];
-  var flash=ok.filter(function(n){ return /flash/.test(n) && !/lite/.test(n); });
-  var stable=flash.filter(function(n){ return !/preview|exp|latest/.test(n); });
-  var pool=stable.length?stable:(flash.length?flash:ok);
-  pool=pool.slice().sort(function(a,b){ return gVer(b)-gVer(a); });
-  return pool[0]||null;
+/* 좋은 모델부터: 정식 Flash(새 것 먼저) → 미리보기 Flash → Flash-Lite(새 것 먼저) → 미리보기 Flash-Lite */
+function gRank(names){
+  function grp(n){ var lite=/lite/.test(n), pre=/preview|exp|latest/.test(n); return (lite?2:0)+(pre?1:0); }
+  var pool=names.filter(function(n){ return /flash/.test(n); });
+  if(!pool.length) pool=names.slice();
+  return pool.slice().sort(function(x,y){ return grp(x)-grp(y) || gVer(y)-gVer(x) || (x<y?-1:1); });
 }
-function gList(done, fail, avoid){
+function gNextReset(){ var d=new Date(), r=Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 8, 0, 0); if(r<=d.getTime()) r+=86400000; return r; }
+function gBlock(model, until){ gq.block[model]=until; store.set("ec_gquota", JSON.stringify(gq.block)); }
+function gFree(model){ var u=gq.block[model]; return !gq.dead[model] && !(u && u>Date.now()); }
+function gOrder(){ var c=gmem.chain.filter(function(n){ return n!==gmem.model; }); if(gmem.model) c.unshift(gmem.model); return c; }
+function gReset(){ gq.block={}; gq.dead={}; store.del("ec_gquota"); drawChain(); }
+function hhmm(t){ var d=new Date(t), z=function(n){return ("0"+n).slice(-2);}; return z(d.getHours())+":"+z(d.getMinutes()); }
+function drawChain(){
+  var box=$("ecGChain"), order=gOrder();
+  if(!order.length){ box.innerHTML=""; return; }
+  box.innerHTML='<div class="ec-sub" style="margin-top:10px">쓰는 순서 (위에서부터, 막히면 자동으로 다음 모델)</div><ol class="ec-steps">'+order.map(function(n){
+    var u=gq.block[n], st = gq.dead[n] ? "쓸 수 없음" : (u && u>Date.now() ? (u-Date.now()>10*60000 ? "오늘 한도 소진 · "+hhmm(u)+"쯤 다시 열림" : "잠시 대기 중") : "사용 가능");
+    return '<li>'+esc(n)+' <span class="ec-sub">— '+st+'</span></li>';
+  }).join("")+'</ol>';
+}
+function gList(done, fail){
   fetch(G_BASE+"models?pageSize=200", {headers:{"x-goog-api-key":gmem.key}}).then(function(res){
     return res.text().then(function(tx){
       if(!res.ok){ fail(gErr(res.status, tx)); return; }
       var j={}; try{ j=JSON.parse(tx); }catch(e){}
       var names=(j.models||[]).filter(function(m){
         var n=String(m.name||""), ok=(m.supportedGenerationMethods||[]).indexOf("generateContent")>=0;
-        return ok && /gemini/.test(n) && !/tts|image|embedding|live|native-audio|robotics|computer|gemma/i.test(n);
-      }).map(function(m){ return String(m.name).replace(/^models\//,""); });
-      var pick=gPick(names, avoid);
-      if(!pick){ fail("키는 확인됐지만 쓸 수 있는 모델을 찾지 못했습니다."); return; }
+        return ok && /gemini/.test(n) && !/tts|image|embedding|live|native-audio|robotics|computer|gemma|pro/i.test(n);
+      }).map(function(m){ return String(m.name).replace(/^models\//,""); }).filter(function(n){ return !gq.dead[n]; });
+      var chain=gRank(names);
+      if(!chain.length){ fail("키는 확인됐지만 쓸 수 있는 모델을 찾지 못했습니다."); return; }
+      gmem.chain=chain; store.set("ec_gchain", JSON.stringify(chain));
+      if(gmem.model && chain.indexOf(gmem.model)<0) gmem.model="";
       var sel=$("ecGModelPick");
-      sel.innerHTML=names.map(function(n){ return '<option value="'+esc(n)+'"'+(n===pick?' selected':'')+'>'+esc(n)+'</option>'; }).join("");
+      sel.innerHTML='<option value=""'+(gmem.model?'':' selected')+'>자동 (가장 좋은 모델부터)</option>'+chain.map(function(n){ return '<option value="'+esc(n)+'"'+(n===gmem.model?' selected':'')+'>'+esc(n)+'</option>'; }).join("");
       sel.classList.remove("ec-hide");
-      gmem.model=pick; $("ecGModel").value=pick; store.set("ec_gmodel", pick);
-      done(pick, names);
+      $("ecGModel").value=gmem.model; store.set("ec_gmodel", gmem.model);
+      drawChain();
+      done(gOrder()[0], chain);
     });
   }).catch(function(e){ fail("구글에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요."); });
 }
 function gModels(){
   if(!gSave()) return;
   gMsg("모델 목록을 불러오는 중…", false);
-  gList(function(pick, names){ gMsg("키가 확인됐습니다. 모델 "+names.length+"개 중 「"+pick+"」을 쓰도록 정했습니다. 아래 목록에서 바꿀 수 있습니다.", false); },
+  gList(function(pick, names){ gMsg("키가 확인됐습니다. 「"+pick+"」부터 쓰고, 한도가 차면 아래 순서대로 자동으로 넘어갑니다.", false); },
         function(why){ gMsg(why, true); });
+}
+function gStuck(){
+  var order=gOrder(), now=Date.now(), until=order.map(function(n){ return gq.block[n]||0; }).filter(function(u){ return u>now; });
+  if(!until.length) return "쓸 수 있는 모델을 찾지 못했습니다. 「설정」에서 「저장」을 다시 눌러 모델 목록을 새로 받아 주세요.";
+  var soon=Math.min.apply(null, until);
+  if(soon-now>10*60000) return "오늘 무료 한도를 모든 모델에서 다 썼습니다. "+hhmm(soon)+"쯤 다시 쓸 수 있습니다.";
+  return "무료 사용 한도를 잠시 넘었습니다. 1분쯤 뒤에 다시 해 주세요.";
 }
 
 /* ---------- 녹음: 마이크 소리를 그대로 받아 WAV로 ---------- */
@@ -811,32 +839,50 @@ function clean(r){
     sc:{pron:num(s.pronunciation), inton:num(s.intonation), flu:num(s.fluency), gram:num(s.grammar)}
   };
 }
-function gAsk(b64, metrics, done, fail, retried){
-  var body={
+function gAsk(b64, metrics, done, fail){
+  var body=JSON.stringify({
     systemInstruction:{parts:[{text:G_SYS}]},
     contents:[{role:"user", parts:[{text:gContext(metrics)}, {inlineData:{mimeType:"audio/wav", data:b64}}]}],
     generationConfig:{responseMimeType:"application/json", temperature:0.4}
-  };
-  fetch(G_BASE+"models/"+encodeURIComponent(gmem.model||G_DEFAULT_MODEL)+":generateContent", {
-    method:"POST", headers:{"Content-Type":"application/json","x-goog-api-key":gmem.key}, body:JSON.stringify(body)
-  }).then(function(res){
-    return res.text().then(function(tx){
-      if(res.status===404 && !retried){
-        var bad=gmem.model;
-        tMsg("모델 「"+bad+"」을 쓸 수 없어 다른 모델을 찾는 중…", false);
-        gList(function(pick){ tMsg("모델을 「"+pick+"」로 바꿔 다시 보내는 중…", false); gAsk(b64, metrics, done, fail, true); }, fail, bad);
-        return;
-      }
-      if(!res.ok){ fail(gErr(res.status, tx)); return; }
-      var j=null; try{ j=JSON.parse(tx); }catch(e){}
-      var cand=j&&j.candidates&&j.candidates[0], parts=cand&&cand.content&&cand.content.parts||[];
-      var text=parts.map(function(p){return p.text||"";}).join("");
-      if(!text){ fail("Gemini가 답을 주지 않았습니다."+(j&&j.promptFeedback&&j.promptFeedback.blockReason?" (차단 사유: "+j.promptFeedback.blockReason+")":"")+" 다시 녹음해 주세요."); return; }
-      var r=parseJson(text);
-      if(!r || typeof r!=="object"){ fail("Gemini의 답을 읽지 못했습니다. 다시 한 번 녹음해 주세요."); return; }
-      done(clean(r));
-    });
-  }).catch(function(e){ fail("구글에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요."); });
+  });
+  var tried=[];
+  function next(why){
+    if(why) tMsg(why, false);
+    if(!gmem.chain.length){ gList(function(){ run(); }, fail); return; }
+    run();
+  }
+  function run(){
+    var order=gOrder().filter(gFree).filter(function(n){ return tried.indexOf(n)<0; });
+    if(!order.length || tried.length>=6){ drawChain(); fail(gStuck()); return; }
+    var model=order[0]; tried.push(model);
+    fetch(G_BASE+"models/"+encodeURIComponent(model)+":generateContent", {
+      method:"POST", headers:{"Content-Type":"application/json","x-goog-api-key":gmem.key}, body:body
+    }).then(function(res){
+      return res.text().then(function(tx){
+        if(res.status===404){
+          gq.dead[model]=1;
+          tMsg("「"+model+"」을 쓸 수 없어 다른 모델을 찾는 중…", false);
+          gList(function(){ run(); }, fail); return;
+        }
+        if(res.status===429){
+          var day=/per\s*day|PerDay/i.test(tx), m=/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(tx);
+          gBlock(model, day ? gNextReset() : Date.now()+Math.max(20, m?parseFloat(m[1]):60)*1000);
+          next("「"+model+"」 한도가 차서 다음 모델로 보내는 중…"); return;
+        }
+        if(res.status>=500){ gBlock(model, Date.now()+60000); next("「"+model+"」이 잠시 응답하지 않아 다음 모델로 보내는 중…"); return; }
+        if(res.status===400 && /not support|unsupported|modalit/i.test(tx) && !/API key/i.test(tx)){ gq.dead[model]=1; next("「"+model+"」은 녹음을 듣지 못해 다음 모델로 보내는 중…"); return; }
+        if(!res.ok){ fail(gErr(res.status, tx)); return; }
+        var j=null; try{ j=JSON.parse(tx); }catch(e){}
+        var cand=j&&j.candidates&&j.candidates[0], parts=cand&&cand.content&&cand.content.parts||[];
+        var text=parts.map(function(p){return p.text||"";}).join("");
+        if(!text){ fail("Gemini가 답을 주지 않았습니다."+(j&&j.promptFeedback&&j.promptFeedback.blockReason?" (차단 사유: "+j.promptFeedback.blockReason+")":"")+" 다시 녹음해 주세요."); return; }
+        var r=parseJson(text);
+        if(!r || typeof r!=="object"){ fail("Gemini의 답을 읽지 못했습니다. 다시 한 번 녹음해 주세요."); return; }
+        r=clean(r); r.model=model; drawChain(); done(r);
+      });
+    }).catch(function(e){ fail("구글에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요."); });
+  }
+  next("");
 }
 
 /* ---------- 소리 내어 읽기 ---------- */
@@ -884,6 +930,7 @@ function drawChat(){
     kv.push("0.5초 넘는 멈춤 "+m.pauses+"회"+(m.pauses?" (가장 긴 멈춤 "+m.longest.toFixed(1)+"초)":""));
     kv.push("높낮이 폭 "+(m.st!=null?m.st.toFixed(1)+"반음 · ":"")+pitchLabel(m.st));
     h+='<div class="ec-kv">기기에서 잰 값: '+esc(kv.join(" · "))+'</div>';
+    if(r.model) h+='<div class="ec-kv">들은 모델: '+esc(r.model)+'</div>';
     if(r.praise) h+='<h3>잘한 점</h3><div>'+esc(r.praise)+'</div>';
     if(r.focus) h+='<h3>다음에 집중할 것</h3><div>'+esc(r.focus)+'</div>';
     h+='<h3>발음</h3>';
@@ -952,13 +999,13 @@ function saveTalk(r, m){
   store.set("ec_history", JSON.stringify(a));
 }
 function talkText(){
-  var L=["[영어 말하기 코치 대화 결과] "+stamp(Date.now())+" · 주제: "+SCENES[T.scene].name+" · 미국식 영어 · 듣고 평가: Google Gemini("+(gmem.model||G_DEFAULT_MODEL)+")"], n=0;
+  var L=["[영어 말하기 코치 대화 결과] "+stamp(Date.now())+" · 주제: "+SCENES[T.scene].name+" · 미국식 영어 · 듣고 평가: Google Gemini"], n=0;
   if(T.script) L.push("낭독 원고: "+T.script);
   T.turns.forEach(function(t){
     if(t.role==="teacher"){ L.push("선생님: "+t.text); return; }
     var r=t.r, m=t.m; n++;
     L.push("나("+n+"): "+r.transcript);
-    L.push("  점수(Gemini): 발음 "+r0(r.sc.pron)+" / 억양 "+r0(r.sc.inton)+" / 유창성 "+r0(r.sc.flu)+" / 문법 "+r0(r.sc.gram));
+    L.push("  점수("+(r.model||"Gemini")+"): 발음 "+r0(r.sc.pron)+" / 억양 "+r0(r.sc.inton)+" / 유창성 "+r0(r.sc.flu)+" / 문법 "+r0(r.sc.gram));
     L.push("  기기 측정: 길이 "+fmtSec(m.dur)+", 0.5초 넘는 멈춤 "+m.pauses+"회"+(m.pauses?"(가장 긴 멈춤 "+m.longest.toFixed(1)+"초)":"")+", 높낮이 폭 "+(m.st!=null?m.st.toFixed(1)+"반음":"측정 안 됨"));
     if(r.pron.length) L.push("  발음: "+r.pron.map(function(p){return p.word+" — "+p.heard;}).join(" / "));
     if(r.inton) L.push("  억양: "+r.inton);
@@ -990,11 +1037,12 @@ document.addEventListener("click", function(ev){
   else if(act==="gsave"){ gModels(); }
   else if(act==="gmodels"){ gModels(); }
   else if(act==="gclear"){ gClear(); }
+  else if(act==="gunblock"){ gReset(); gMsg("한도 기록을 지웠습니다. 다음 녹음은 처음 모델부터 다시 시도합니다.", false); }
 });
 document.addEventListener("change", function(ev){
   var id=ev.target && ev.target.id;
   if(id==="ecScene"){ if(T.state!=="idle"){ ev.target.value=String(T.scene); return; } T.scene=Number(ev.target.value)||0; $("ecScriptBox").classList.toggle("ec-hide", !SCENES[T.scene].script); }
-  else if(id==="ecGModelPick"){ gmem.model=ev.target.value; $("ecGModel").value=gmem.model; store.set("ec_gmodel", gmem.model); gMsg("모델을 「"+gmem.model+"」로 바꿨습니다.", false); }
+  else if(id==="ecGModelPick"){ gmem.model=ev.target.value; $("ecGModel").value=gmem.model; store.set("ec_gmodel", gmem.model); drawChain(); gMsg(gmem.model ? "「"+gmem.model+"」부터 쓰도록 바꿨습니다." : "가장 좋은 모델부터 자동으로 쓰도록 바꿨습니다.", false); }
   else if(id==="ecAutoSpeak"){ store.set("ec_autospeak", ev.target.checked ? "on":"off"); }
 });
 
@@ -1002,7 +1050,7 @@ $("ecVer").textContent="v"+BUILD;
 loadSetup(); gLoad(); drawScenes(); drawTRec(); drawTabs(); drawChoices();
 if(!gmem.key) tMsg("처음이시면 「설정」에서 Gemini 이용 키를 먼저 넣어 주세요.", false);
 if(!mem.key) msg("정밀 채점은 「설정」에서 Azure 이용 키와 지역을 넣어야 쓸 수 있습니다.", false);
-window.__ec = { S:S, T:T, build:build, summary:summary, align:align, analyze:analyze, resample:resample, wavBase64:wavBase64, talkText:talkText, parseJson:parseJson };
+window.__ec = { S:S, T:T, gq:gq, gmem:gmem, gReset:gReset, gRank:gRank, build:build, summary:summary, align:align, analyze:analyze, resample:resample, wavBase64:wavBase64, talkText:talkText, parseJson:parseJson };
 })();
 </script>
 </body>
