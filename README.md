@@ -1,11 +1,30 @@
 # 영어 말하기 코치
 
-선교지 영어 준비용 발음·억양 연습 페이지. 미국식 영어 기준.
+선교지에서 영어로 소통하고, 간증과 복음을 전하고, 예배를 인도하기 위한 개인용 말하기 훈련 페이지.
 
-- `index.html` 앱 전체 (한 파일)
-- `speech-sdk.js` Microsoft Speech SDK 브라우저 묶음 1.53.0 (MIT, `speech-sdk.LICENSE.txt`)
-- `tests/test_app.py` 배포 전 점검: `python3 tests/test_app.py <앱 폴더> <캡처 폴더> tests/fake_speech.wav`
+- 주소: https://danielkang3927-collab.github.io/english-coach/
+- 설계 기준: [SPEC.md](SPEC.md) — 기능을 바꾸면 이 문서도 함께 고친다.
 
-「대화」 탭은 Google Gemini가 녹음을 듣고 코칭한다(무료 이용 키). 「정밀 채점」 탭은 Azure Speech 키가 있을 때 쓴다.
+## 파일
 
-이용 키는 코드에 넣지 않는다. 사용자가 앱의 「설정·안내」에 직접 입력하며 그 기기에만 저장된다.
+| 파일 | 내용 |
+|---|---|
+| `index.html` | 화면 틀과 모양(CSS) |
+| `js/data.js` | 학습 내용: 약점 분류표와 훈련 문장, 어순 원칙, 구문 90개, 대화 장면, 레벨 테스트 문제, 실전 미션 |
+| `js/core.js` | 기록 저장, 간격 반복, 약점 통계, 녹음과 기기 측정, Gemini 연결, 선생님 지시문 |
+| `js/app.js` | 화면과 훈련 흐름 |
+| `tests/` | 자동 점검 (가짜 마이크, 가짜 Gemini 응답) |
+
+## 자동 점검
+
+```
+python3 tests/test_app.py <저장소 폴더> <캡처 저장 폴더> tests/fake_speech.wav [s1 … s8]
+```
+
+휴대폰(390×844)과 아이패드(820×1180) 크기에서 모든 버튼을 눌러 보고, 기록 합치기와 빈 기기에서 가져오기까지 확인한다.
+
+## 지킬 것
+
+- Gemini 이용 키는 사용자 기기에만 둔다. 코드·기록·백업에 넣지 않는다.
+- 기록은 지우거나 덮어쓰지 않고 합친다.
+- 공개 저장소이므로 가족·성도의 실명을 학습 내용에 넣지 않는다.
