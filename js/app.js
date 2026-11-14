@@ -1,7 +1,7 @@
 "use strict";
 /* 영어 말하기 코치 — 화면과 훈련 흐름. 기준은 SPEC.md. */
 const U = { tab: "home", scene: 0, f: { script: "", phEn: "", phKo: "", bk: "", gkey: "" }, remember: true, tagSel: null, ordSel: null, showZero: false,
-  phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0, flash: null, smsg: null, diag: null };
+  phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0, flash: null, smsg: null, diag: null, back: null };
 let A = null;                                     /* 진행 중인 훈련 */
 let SAY = [];                                     /* 「듣기」 버튼이 읽을 글 */
 const REC = { on: false, busy: false, t0: 0, timer: null, max: 0, done: null };
@@ -541,9 +541,10 @@ function drawWeak() {
   h += card("영어 어순 원칙 일곱 가지", '<p class="ec-sub">한국어 순서로 떠올린 생각을 영어 순서로 내보내는 원칙입니다. 하나씩 눌러 훈련하세요.</p>' + D.ORDER.map((o, i) => '<button class="ec-item" data-act="ordOpen" data-arg="' + o.id + '"><b>' + (i + 1) + '. ' + esc(o.t) + '</b><small>' + esc(o.ex.en) + '</small></button>').join(""));
   return h;
 }
+const backLabel = () => U.back && U.back.tab !== "weak" ? "← 보던 화면으로" : "← 약점 목록";
 function drawTagDetail(g) {
   const T = D.TAGS[g], S = tagStats().list.filter(s => s.g === g)[0], bad = mistakesOf(g, 6);
-  let h = '<div class="ec-row">' + btn("← 약점 목록", "tagBack", null, "ghost small") + '</div>';
+  let h = '<div class="ec-row">' + btn(backLabel(), "tagBack", null, "ghost small") + '</div>';
   let b = '<p class="ec-sub">' + (S.tot ? "최근 2주 " + S.r + "번 · 그 전 2주 " + S.p + "번 · 누적 " + S.tot + "번" + (S.grad ? " · 졸업" : "") : "아직 기록 없음") + '</p><h3>왜 틀리나</h3><p>' + esc(T.why) + '</p><h3>이렇게 고칩니다</h3><p>' + esc(T.fix) + '</p>';
   if (T.ex) b += '<h3>바른 예</h3>' + T.ex.map(e => '<div class="ec-fix"><b>' + esc(e) + '</b> ' + say(e) + '</div>').join("");
   if (bad.length) b += '<h3>내가 실제로 틀린 말</h3>' + bad.map(x => '<div class="ec-fix"><del>' + esc(x.a) + '</del>' + (x.b ? ' → <b>' + esc(x.b) + '</b> ' + say(x.b) : "") + '<div class="ec-sub">' + stamp(x.t).slice(5, 10) + '</div></div>').join("");
@@ -555,7 +556,7 @@ function drawOrderDetail(id) {
   const o = D.ORDER.filter(x => x.id === id)[0];
   let b = '<p>' + esc(o.d) + '</p><div class="ec-answer"><small>' + esc(o.ex.ko) + '</small>' + esc(o.ex.en) + ' ' + say(o.ex.en) + '</div><h3>훈련 문장</h3>' +
     o.dr.map(q => '<div class="ec-fix">' + esc(q.ko) + '<div><b>' + esc(q.en) + '</b> ' + say(q.en) + '</div></div>').join("") + btn("이 원칙 훈련 시작 (" + o.dr.length + "문장)", "ordDrill", id, "wide");
-  return '<div class="ec-row">' + btn("← 약점 목록", "tagBack", null, "ghost small") + '</div>' + card(esc(o.t), b);
+  return '<div class="ec-row">' + btn(backLabel(), "tagBack", null, "ghost small") + '</div>' + card(esc(o.t), b);
 }
 
 /* ---------- 구문 ---------- */
@@ -692,7 +693,7 @@ function drawSettings() {
 
 /* ---------- 누르기 ---------- */
 const ACT = {
-  tab: a => { U.tagSel = null; U.ordSel = null; U.delAsk = null; go(a); },
+  tab: a => { U.tagSel = null; U.ordSel = null; U.delAsk = null; U.back = null; go(a); },
   top: () => window.scrollTo({ top: 0, behavior: "smooth" }),
   bottom: () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" }),
   say: a => { const t = SAY[+a]; if (t) speak(t); },
@@ -741,12 +742,12 @@ const ACT = {
   xHome: () => { A = null; pendSave(); go("home"); },
   xRec: () => { A = null; pendSave(); go("rec"); },
   /* 약점 */
-  tagOpen: a => { if (!D.TAGS[a]) return; U.tagSel = a; U.ordSel = null; go("weak"); },
-  tagBack: () => { U.tagSel = null; U.ordSel = null; go("weak"); },
+  tagOpen: a => { if (!D.TAGS[a]) return; if (!U.tagSel && !U.ordSel) U.back = { tab: U.tab, y: window.scrollY }; U.tagSel = a; U.ordSel = null; go("weak"); },
+  tagBack: () => { const b = U.back; U.back = null; U.tagSel = null; U.ordSel = null; go(b ? b.tab : "weak"); if (b) window.scrollTo(0, b.y); },
   tagMore: () => { U.showZero = !U.showZero; render(); },
-  tagDrill: a => { if (A && hasWork(A)) { ACT.start("dr"); return; } A = null; startBatch("dr", tagDrills(a), D.TAGS[a].n + " 훈련", null); },
-  ordOpen: a => { U.ordSel = a; U.tagSel = null; go("weak"); },
-  ordDrill: a => { if (A && hasWork(A)) { ACT.start("dr"); return; } A = null; startBatch("dr", orderDrills(a), "어순 훈련", null); },
+  tagDrill: a => { U.back = null; if (A && hasWork(A)) { ACT.start("dr"); return; } A = null; startBatch("dr", tagDrills(a), D.TAGS[a].n + " 훈련", null); },
+  ordOpen: a => { if (!U.tagSel && !U.ordSel) U.back = { tab: U.tab, y: window.scrollY }; U.ordSel = a; U.tagSel = null; go("weak"); },
+  ordDrill: a => { U.back = null; if (A && hasWork(A)) { ACT.start("dr"); return; } A = null; startBatch("dr", orderDrills(a), "어순 훈련", null); },
   /* 구문 */
   phCat: a => { U.phCat = a; U.delAsk = null; render(); },
   phAdd: () => {

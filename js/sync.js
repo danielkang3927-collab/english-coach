@@ -3,8 +3,8 @@
    Firebase를 주소로 직접 부른다(따로 받는 라이브러리 없음). 로그인은 구글 화면으로 갔다가 이 주소로 돌아오는 방식이라
    팝업·다른 사이트 저장 허용이 필요 없다. 저장은 합치기만 한다. 기준은 SPEC.md 13장. */
 const FB = Object.assign({
-  apiKey: "",        /* Firebase 웹 앱의 apiKey (공개 값) */
-  projectId: "",     /* Firebase 프로젝트 ID */
+  apiKey: "AIzaSyC5L0aBtelJOIIMzRqe7nDIStKoUelDQQo",   /* Firebase 웹 앱의 apiKey (공개 값. 콘솔 화면의 글자를 그대로 옮김) */
+  projectId: "english-coach-3ffba",                    /* Firebase 프로젝트 ID */
   clientId: "",      /* 구글 OAuth 웹 클라이언트 ID (…apps.googleusercontent.com) */
   redirect: "https://danielkang3927-collab.github.io/english-coach/"   /* 구글 콘솔 「승인된 리디렉션 URI」와 글자까지 같아야 한다 */
 }, window.__FB || {});
