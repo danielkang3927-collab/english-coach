@@ -244,9 +244,11 @@ with sync_playwright() as p:
         var mode=window.__gmode||'ok', status=200, body;
         if(/models\\?pageSize/.test(url)){
           if(mode==='badkey'){ status=400; body={error:{message:'API key not valid. Please pass a valid API key.'}}; }
+          else if(mode==='retired') body={models:[{name:'models/gemini-4.0-flash-lite',supportedGenerationMethods:['generateContent']},{name:'models/gemini-3.8-flash',supportedGenerationMethods:['generateContent']},{name:'models/gemini-4.1-flash-preview',supportedGenerationMethods:['generateContent']},{name:'models/gemini-3.5-flash',supportedGenerationMethods:['generateContent']},{name:'models/gemini-4.0-flash',supportedGenerationMethods:['generateContent']}]};
           else body={models:[{name:'models/gemini-2.5-flash',supportedGenerationMethods:['generateContent']},{name:'models/gemini-3.5-flash',supportedGenerationMethods:['generateContent']},{name:'models/gemini-2.5-flash-preview-tts',supportedGenerationMethods:['generateContent']},{name:'models/gemini-embedding-001',supportedGenerationMethods:['embedContent']}]};
         } else if(mode==='quota'){ status=429; body={error:{message:'Quota exceeded'}}; }
         else if(mode==='nomodel'){ status=404; body={error:{message:'model not found'}}; }
+        else if(mode==='retired' && /gemini-3\.5-flash:/.test(url)){ status=404; body={error:{message:'models/gemini-3.5-flash is not found'}}; }
         else if(mode==='garbage'){ body={candidates:[{content:{parts:[{text:'sorry, I cannot'}]}}]}; }
         else { body={candidates:[{content:{parts:[{text:'```json\\n'+JSON.stringify(GEM)+'\\n```'}]}}]}; }
         var tx=JSON.stringify(body);
@@ -261,7 +263,7 @@ with sync_playwright() as p:
         pg.on("pageerror", lambda e: errs.append(str(e)))
         pg.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
         pg.goto(URL); pg.evaluate(FETCH)
-        check(name + " C0 첫 화면이 대화 탭 + 버전 v2", pg.is_visible("#tab-talk") and pg.inner_text("#ecVer") == "v2")
+        check(name + " C0 첫 화면이 대화 탭 + 버전 v3", pg.is_visible("#tab-talk") and pg.inner_text("#ecVer") == "v3")
         check(name + " C1 키 없을 때 안내", "Gemini" in pg.inner_text("#ecTMsg"))
         # 소리 분석 단위 시험: 150Hz 1초, 0.7초 쉼, 200Hz 1초
         an = pg.evaluate("""(function(){ var r=16000, n=r*3.2, x=new Float32Array(n); function tone(a,b,f){ for(var i=a;i<b;i++) x[i]=0.3*Math.sin(2*Math.PI*f*i/r)+0.1*Math.sin(4*Math.PI*f*i/r); }
@@ -277,12 +279,12 @@ with sync_playwright() as p:
         pg.click('[data-tab="setup"]'); pg.click('[data-act="gsave"]')
         check(name + " C7 키 없이 저장하면 안내", "넣어 주세요" in pg.inner_text("#ecGMsg"))
         pg.fill("#ecGKey", "test-key"); pg.check("#ecGRemember")
-        pg.evaluate("window.__gmode='badkey'"); pg.click('[data-act="gmodels"]'); pg.wait_for_function("/올바르지 않습니다/.test(document.getElementById('ecGMsg').innerText)")
+        pg.evaluate("window.__gmode='badkey'"); pg.click('[data-act="gsave"]'); pg.wait_for_function("/올바르지 않습니다/.test(document.getElementById('ecGMsg').innerText)")
         check(name + " C8 잘못된 키 문구", True)
-        pg.evaluate("window.__gmode='ok'"); pg.click('[data-act="gmodels"]'); pg.wait_for_function("/키가 확인됐습니다/.test(document.getElementById('ecGMsg').innerText)")
+        pg.evaluate("window.__gmode='ok'"); pg.click('[data-act="gsave"]'); pg.wait_for_function("/키가 확인됐습니다/.test(document.getElementById('ecGMsg').innerText)")
         opts = pg.evaluate("Array.from(document.getElementById('ecGModelPick').options).map(o=>o.value)")
         check(name + " C9 모델 목록에서 음성합성·임베딩 제외", opts == ["gemini-2.5-flash", "gemini-3.5-flash"], opts)
-        check(name + " C10 저장된 모델 유지", pg.input_value("#ecGModel") == "gemini-2.5-flash")
+        check(name + " C10 저장만 눌러도 모델이 정해짐", pg.input_value("#ecGModel") in ("gemini-2.5-flash", "gemini-3.5-flash"), pg.input_value("#ecGModel"))
         pg.select_option("#ecGModelPick", "gemini-3.5-flash")
         check(name + " C11 모델 바꾸기", pg.input_value("#ecGModel") == "gemini-3.5-flash" and pg.evaluate("localStorage.getItem('ec_gmodel')") == "gemini-3.5-flash")
         check(name + " C11b 바꾼 모델이 안내 문구에 반영", "gemini-3.5-flash" in pg.inner_text("#ecGMsg") and "gemini-2.5-flash" not in pg.inner_text("#ecGMsg"))
@@ -331,6 +333,13 @@ with sync_playwright() as p:
             pg.click('[data-act="trec"]'); pg.wait_for_function("window.__ec.T.state==='rec'", timeout=10000); pg.wait_for_timeout(2500); pg.click('[data-act="trec"]')
             pg.wait_for_function("window.__ec.T.state==='idle' && !!document.querySelector('#ecTMsg .err')", timeout=15000)
             check(name + " C27 오류(%s) 문구 + 대기 복귀" % mode, word in pg.inner_text("#ecTMsg") and not pg.is_disabled("#ecTRec") and pg.locator("#ecChat .ec-turn").count() == 2, pg.inner_text("#ecTMsg"))
+            if mode == "nomodel": pg.evaluate("window.__gmode='ok'"); pg.click('[data-tab="setup"]'); pg.select_option("#ecGModelPick", "gemini-3.5-flash"); pg.click('[data-tab="talk"]')
+        # 쓰던 모델이 없어진 경우: 목록에서 자동으로 다시 골라 한 번 더 보냄
+        pg.evaluate("window.__gmode='retired'")
+        pg.click('[data-act="trec"]'); pg.wait_for_function("window.__ec.T.state==='rec'", timeout=10000); pg.wait_for_timeout(5600); pg.click('[data-act="trec"]')
+        pg.wait_for_function("window.__ec.T.state==='idle' && document.querySelectorAll('#ecChat .ec-turn').length===3", timeout=20000)
+        last = pg.evaluate("window.__calls[window.__calls.length-1].url")
+        check(name + " C27b 없어진 모델이면 자동으로 바꿔 다시 보냄(안정판 최신 flash)", "gemini-4.0-flash:generateContent" in last and pg.input_value("#ecGModel") == "gemini-4.0-flash" and pg.evaluate("localStorage.getItem('ec_gmodel')") == "gemini-4.0-flash" and pg.inner_text("#ecTMsg").strip() == "", last)
         pg.evaluate("window.__gmode='ok'")
         # 너무 짧은 녹음
         pg.click('[data-act="trec"]'); pg.wait_for_function("window.__ec.T.state==='rec'", timeout=10000); pg.wait_for_timeout(250); pg.click('[data-act="trec"]')
@@ -340,9 +349,9 @@ with sync_playwright() as p:
         pg.select_option("#ecScene", "0"); pg.click('[data-act="tstart"]')
         check(name + " C29 새 대화로 초기화", pg.locator("#ecChat .ec-turn").count() == 0 and pg.locator("#ecChat .ec-bub").count() == 1 and "family" in pg.inner_text("#ecChat"))
         pg.click('[data-tab="history"]')
-        check(name + " C30 기록에 대화 2건", pg.locator("#ecHist tr").count() == 3 and "대화" in pg.inner_text("#ecHist"), pg.inner_text("#ecHist"))
+        check(name + " C30 기록에 대화 3건", pg.locator("#ecHist tr").count() == 4 and "대화" in pg.inner_text("#ecHist"), pg.inner_text("#ecHist"))
         pg.reload(); pg.evaluate(FETCH)
-        check(name + " C31 새로 고침 뒤 키·모델 기억", pg.evaluate("document.getElementById('ecGKey').value") == "test-key" and pg.evaluate("document.getElementById('ecGModel').value") == "gemini-3.5-flash" and pg.inner_text("#ecTMsg").strip() == "")
+        check(name + " C31 새로 고침 뒤 키·모델 기억", pg.evaluate("document.getElementById('ecGKey').value") == "test-key" and pg.evaluate("document.getElementById('ecGModel').value") == "gemini-4.0-flash" and pg.inner_text("#ecTMsg").strip() == "")
         pg.click('[data-tab="setup"]'); pg.click('[data-act="gclear"]')
         check(name + " C32 키 지우기", pg.evaluate("localStorage.getItem('ec_gkey')") is None)
         pg.click('[data-tab="talk"]')
