@@ -80,6 +80,13 @@ MOCK = r"""
       }
       return js(404, {detail:{status:"not_found"}});
     }
+    if(url.indexOf("generativelanguage.googleapis.com") >= 0 && url.indexOf("/interactions") >= 0){
+      var GT0 = window.__gt = window.__gt || {calls:[], mode:"ok"}; var bd = JSON.parse(opt.body); GT0.calls.push({model:bd.model, voice:bd.generation_config.speech_config[0].voice, text:bd.input[0].content[0].text});
+      if(GT0.mode !== "ok") return Promise.resolve(new Response(JSON.stringify({error:{code:429}}), {status:429}));
+      var wav = new Uint8Array(44 + 4800); var hd = [82,73,70,70,228,18,0,0,87,65,86,69,102,109,116,32,16,0,0,0,1,0,1,0,192,93,0,0,128,187,0,0,2,0,16,0,100,97,116,97,192,18,0,0]; for(var q=0;q<44;q++) wav[q]=hd[q];
+      var bs = ""; for(var q2=0;q2<wav.length;q2++) bs += String.fromCharCode(wav[q2]);
+      return Promise.resolve(new Response(JSON.stringify({steps:[{content:[{type:"audio", mime_type:"audio/wav", data:btoa(bs)}]}]}), {status:200}));
+    }
     if(url.indexOf("generativelanguage.googleapis.com") < 0) return real.apply(this, arguments);
     var M = window.__mock;
     function resp(status, obj){ return new Promise(function(res){ setTimeout(function(){ res(new Response(JSON.stringify(obj), {status:status})); }, 25); }); }

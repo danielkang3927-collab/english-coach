@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 12;
+const BUILD = 13;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -372,15 +372,15 @@ function speakDevice(text) {
   } catch (e) { return false; }
 }
 /* ---------- ElevenLabs 목소리 (선택). 키는 이 기기에만 둔다. 한 번 읽은 문장은 기기에 저장해 다시 쓰므로 크레딧이 또 들지 않는다. ---------- */
-const XI = { key: "", voice: "", name: "", voices: [], used: null, limit: null, audio: null, url: "", note: "", off: 0, seq: 0, open: false, stats: { net: 0, hit: 0 } };
+const XI = { key: "", voice: "", name: "", pool: [], voices: [], used: null, limit: null, audio: null, url: "", note: "", off: 0, seq: 0, open: false, stats: { net: 0, hit: 0 } };
 const XI_BASE = "https://api.elevenlabs.io/v1/", XI_MODEL = "eleven_flash_v2_5", XI_MAX = 400;
 const XI_SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
-function xiLoad() { XI.key = store.get("ec_xikey") || ""; XI.voice = store.get("ec_xivoice") || ""; XI.name = store.get("ec_xiname") || ""; }
+function xiLoad() { XI.key = store.get("ec_xikey") || ""; XI.voice = store.get("ec_xivoice") || ""; XI.name = store.get("ec_xiname") || ""; try { XI.pool = JSON.parse(store.get("ec_xipool") || "[]") || []; } catch (e) { XI.pool = []; } }
 function xiOn() { return !!(XI.key && XI.voice) && Date.now() > XI.off; }
 function xiErr(status, tx) {
   let d = ""; try { const j = JSON.parse(tx); d = (j.detail && (j.detail.status || j.detail.message)) || j.message || ""; if (typeof d !== "string") d = JSON.stringify(d); } catch (e) { d = String(tx || "").slice(0, 80); }
   if (/api_key_id_used_as_api_key/i.test(d)) return "넣으신 것은 키가 아니라 키의 번호(ID)입니다. 키 값은 만들 때 한 번만 보입니다. ElevenLabs에서 키를 새로 만들고, 그때 화면에 뜨는 sk_ 로 시작하는 글자를 복사해 넣어 주세요.";
-  if (/quota_exceeded/i.test(d)) return "ElevenLabs 이번 달 무료 크레딧을 다 썼습니다. 다음 달까지는 기기 목소리로 읽습니다.";
+  if (/quota_exceeded/i.test(d)) return "ElevenLabs 이번 달 무료 크레딧을 다 썼습니다. 그동안은 Gemini 목소리로 읽고, 크레딧이 다시 차면 자동으로 ElevenLabs로 돌아옵니다.";
   if (status === 401 && /missing_permissions/i.test(d)) return "ElevenLabs 키에 권한이 부족합니다. 키를 만들 때 「Text to Speech」와 「Voices 읽기」 권한을 켜 주세요.";
   if (status === 401) return "ElevenLabs 키가 올바르지 않습니다. 다시 확인해 주세요. (" + d.slice(0, 60) + ")";
   if (status === 429) return "ElevenLabs 요청이 잠시 몰렸습니다. 조금 뒤에 다시 됩니다.";
@@ -390,47 +390,76 @@ function xiGet(path, key) {
   return fetchT(XI_BASE + path, { method: "GET", headers: { "xi-api-key": key || XI.key } }, 20000).then(res => res.text().then(tx => { if (!res.ok) throw new Error(xiErr(res.status, tx)); return JSON.parse(tx); }),
     e => { throw new Error("ElevenLabs에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요."); });
 }
-function xiVoices(key) {                              /* 남자·미국식 목소리가 먼저 오게 */
+function xiMix(vs) {                                   /* 남자·여자를 번갈아 놓는다 (남자부터) */
+  const m = vs.filter(v => v.gender === "male"), f = vs.filter(v => v.gender === "female"), o = vs.filter(v => v.gender !== "male" && v.gender !== "female"), out = [];
+  for (let i = 0; i < Math.max(m.length, f.length); i++) { if (m[i]) out.push(m[i]); if (f[i]) out.push(f[i]); }
+  return out.concat(o);
+}
+function xiVoices(key) {                              /* 미국식이 위로, 그 안에서 남녀를 섞는다 */
   return xiGet("voices", key).then(j => {
     const L = x => String(x || "").toLowerCase();
     const vs = ((j && j.voices) || []).filter(v => v && v.voice_id && v.name).map(v => ({ id: String(v.voice_id), name: String(v.name), gender: L(v.labels && v.labels.gender), accent: L(v.labels && v.labels.accent) }));
-    const rank = v => (v.gender === "male" ? 0 : 2) + (/americ|us/.test(v.accent) ? 0 : 1);
-    vs.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
-    XI.voices = vs; return vs;
+    vs.sort((a, b) => a.name.localeCompare(b.name));
+    const us = xiMix(vs.filter(v => /americ/.test(v.accent))), rest = xiMix(vs.filter(v => !/americ/.test(v.accent)));
+    XI.voices = us.concat(rest);
+    XI.pool = (us.length >= 2 ? us : XI.voices).slice(0, 6).map(v => v.id); store.set("ec_xipool", JSON.stringify(XI.pool));
+    return XI.voices;
   });
 }
 function xiUsage(key) { return xiGet("user/subscription", key).then(j => { XI.used = +j.character_count || 0; XI.limit = +j.character_limit || 0; return j; }); }
 function xiSetVoice(id) { const v = XI.voices.filter(x => x.id === id)[0]; if (!v) return; XI.voice = v.id; XI.name = v.name; store.set("ec_xivoice", v.id); store.set("ec_xiname", v.name); }
-function xiClear() { XI.key = ""; XI.voice = ""; XI.name = ""; XI.voices = []; XI.used = XI.limit = null; XI.note = ""; ["ec_xikey", "ec_xivoice", "ec_xiname"].forEach(k => store.del(k)); }
+function xiClear() { XI.key = ""; XI.voice = ""; XI.name = ""; XI.voices = []; XI.pool = []; XI.used = XI.limit = null; XI.note = ""; ["ec_xikey", "ec_xivoice", "ec_xiname", "ec_xipool"].forEach(k => store.del(k)); }
 function xiUnlock() { if (XI.open || !XI.key) return; try { if (!XI.audio) XI.audio = new Audio(); XI.audio.src = XI_SILENT; const p = XI.audio.play(); if (p && p.then) p.then(() => { XI.open = true; }, () => {}); } catch (e) {} }
-function xiPlay(buf) {
+function xiPlay(buf, type) {
   return new Promise(res => {
     try {
       if (!XI.audio) XI.audio = new Audio();
       if (XI.url) URL.revokeObjectURL(XI.url);
-      XI.url = URL.createObjectURL(new Blob([buf], { type: "audio/mpeg" })); XI.audio.src = XI.url;
+      XI.url = URL.createObjectURL(new Blob([buf], { type: type || "audio/mpeg" })); XI.audio.src = XI.url;
       const p = XI.audio.play(); if (p && p.then) p.then(() => res(true), () => res(false)); else res(true);
     } catch (e) { res(false); }
   });
 }
-function xiSay(text) {
-  const t = String(text).replace(/\s*\/\s*/g, " ").replace(/\s+/g, " ").trim(), my = ++XI.seq, id = "tts:" + XI.voice + ":" + t;
-  if (!t || t.length > XI_MAX) return Promise.resolve(false);
+const ttsHash = t => { let h = 7; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0; return h; };
+/* 선생님(대화)은 늘 같은 목소리, 나머지 문장은 여러 목소리. 같은 문장은 늘 같은 목소리라 저장해 둔 것을 다시 쓴다. */
+function xiVoiceFor(t, role) { const pool = XI.pool.length ? XI.pool : [XI.voice]; return role === "teacher" ? XI.voice : pool[ttsHash(t) % pool.length]; }
+function xiSay(t, role, my) {
+  const voice = xiVoiceFor(t, role), id = "tts:" + voice + ":" + t;
   return idbGet(id).catch(() => null).then(buf => {
     if (buf && buf.byteLength > 200) { XI.stats.hit++; return buf; }
-    return fetchT(XI_BASE + "text-to-speech/" + XI.voice + "?output_format=mp3_44100_128", { method: "POST", headers: { "xi-api-key": XI.key, "Content-Type": "application/json" }, body: JSON.stringify({ text: t, model_id: XI_MODEL }) }, 20000)
+    return fetchT(XI_BASE + "text-to-speech/" + voice + "?output_format=mp3_44100_128", { method: "POST", headers: { "xi-api-key": XI.key, "Content-Type": "application/json" }, body: JSON.stringify({ text: t, model_id: XI_MODEL }) }, 20000)
       .then(res => { if (!res.ok) return res.text().then(tx => { const e = new Error(xiErr(res.status, tx)); e.quota = /크레딧을 다 썼/.test(e.message); throw e; }); return res.arrayBuffer(); })
       .then(b => { XI.stats.net++; idbSet(id, b).catch(() => {}); return b; });
   }).then(buf => { if (my !== XI.seq) return true; XI.note = ""; return xiPlay(buf); });
 }
-function speak(text) {
-  if (!xiOn()) return speakDevice(text);
+/* Gemini 목소리: ElevenLabs 크레딧이 떨어졌을 때 대신 읽는다. 이것도 안 되면 기기 목소리. */
+const GT = { off: 0, note: "", models: ["gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts"], teacher: "Achird", pool: ["Kore", "Puck", "Charon", "Aoede", "Leda", "Orus"], stats: { net: 0, hit: 0 } };
+function gtFetch(t, voice, i) {
+  return fetchT(G_BASE + "interactions", { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": G.key },
+    body: JSON.stringify({ model: GT.models[i], input: [{ type: "user_input", content: [{ type: "text", text: t }] }], response_format: { type: "audio" }, generation_config: { speech_config: [{ voice: voice }] } }) }, 25000)
+    .then(res => res.text().then(tx => {
+      if (!res.ok) { if (i + 1 < GT.models.length) return gtFetch(t, voice, i + 1); throw new Error("Gemini 목소리를 쓰지 못했습니다 (" + res.status + "). 기기 목소리로 읽습니다."); }
+      let d = ""; try { (JSON.parse(tx).steps || []).forEach(st => (st.content || []).forEach(c => { if (!d && c && typeof c.data === "string" && c.data.length > 100) d = c.data; })); } catch (e) {}
+      if (!d) throw new Error("Gemini 목소리 응답에 소리가 없습니다. 기기 목소리로 읽습니다.");
+      const bin = atob(d), u = new Uint8Array(bin.length); for (let k = 0; k < bin.length; k++) u[k] = bin.charCodeAt(k);
+      return u.buffer;
+    }));
+}
+function gtSay(t, role, my) {
+  const voice = role === "teacher" ? GT.teacher : GT.pool[ttsHash(t) % GT.pool.length], id = "tts:g:" + voice + ":" + t;
+  return idbGet(id).catch(() => null).then(buf => {
+    if (buf && buf.byteLength > 200) { GT.stats.hit++; return buf; }
+    return gtFetch(t, voice, 0).then(b => { GT.stats.net++; idbSet(id, b).catch(() => {}); return b; });
+  }).then(buf => { if (my !== XI.seq) return true; GT.note = ""; return xiPlay(buf, "audio/wav"); });
+}
+function speak(text, role) {
+  if (!XI.key) return speakDevice(text);
+  const t = String(text).replace(/\s*\/\s*/g, " ").replace(/\s+/g, " ").trim();
   try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
-  const my = XI.seq + 1;
-  xiSay(text).then(ok => { if (!ok && my === XI.seq) speakDevice(text); }, e => {
-    XI.note = String(e && e.message || e); XI.off = Date.now() + (e && e.quota ? 3600000 : 60000);
-    if (my === XI.seq) speakDevice(text);
-  });
+  const my = ++XI.seq, short = t && t.length <= XI_MAX;
+  const viaG = () => (short && G.key && Date.now() > GT.off) ? gtSay(t, role, my).catch(e => { GT.note = String(e && e.message || e); GT.off = Date.now() + 600000; return false; }) : Promise.resolve(false);
+  const first = (short && xiOn()) ? xiSay(t, role, my).catch(e => { XI.note = String(e && e.message || e); XI.off = Date.now() + (e && e.quota ? 6 * 3600000 : 60000); return viaG(); }) : viaG();
+  first.then(ok => { if (!ok && my === XI.seq) speakDevice(text); });
   return true;
 }
 function speakStop() { XI.seq++; try { if (XI.audio) XI.audio.pause(); } catch (e) {} try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {} }

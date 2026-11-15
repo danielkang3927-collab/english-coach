@@ -7,7 +7,7 @@ let SAY = [];                                     /* 「듣기」 버튼이 읽�
 const REC = { on: false, busy: false, t0: 0, timer: null, max: 0, done: null };
 
 /* ---------- 작은 조각 ---------- */
-const say = (text, label) => { SAY.push(text); return '<button class="ec-mini" data-act="say" data-arg="' + (SAY.length - 1) + '">' + (label || "듣기") + '</button>'; };
+const say = (text, label, role) => { SAY.push(role ? { t: text, role: role } : text); return '<button class="ec-mini" data-act="say" data-arg="' + (SAY.length - 1) + '">' + (label || "듣기") + '</button>'; };
 const btn = (label, act, arg, cls) => '<button class="ec-btn ' + (cls || "") + '" data-act="' + act + '"' + (arg != null ? ' data-arg="' + esc(arg) + '"' : "") + '>' + label + '</button>';
 const sCls = n => n == null ? "" : (n >= 80 ? "s-good" : (n >= 60 ? "s-mid" : "s-bad"));
 const r0 = n => n == null || isNaN(n) ? "–" : String(Math.round(n));
@@ -311,7 +311,7 @@ function startTalk(idx) {
   if (sc.script && !U.f.script.trim()) { go("train"); setMsg("읽을 영어 원고를 먼저 넣어 주세요.", true); return; }
   A = { type: "talk", title: sc.name, scene: idx, script: sc.script ? U.f.script.trim().slice(0, 3000) : "", turns: [], q: openerFor(sc), phase: "idle", pend: null, allOpen: false };
   U.talkN++; go("train");
-  if (DB.set.autoSpeak) speak(A.q);
+  if (DB.set.autoSpeak) speak(A.q, "teacher");
 }
 function talkContext(a, m) {
   const sc = D.SCENES[a.scene], L = ["MODE: talk", "Scenario: " + sc.name + " (" + sc.id + ")"];
@@ -340,7 +340,7 @@ function talkSend() {
     const day = dayRec(); day.st.talk++; day.said += sentences(c.transcript); daySave();
     me.turns.push({ q: me.q, r: c, m: p.m, words, tags, id: rec.id, model, open: false });
     me.q = c.reply || "Thank you. Please tell me more."; me.pend = null; me.phase = "idle";
-    if (arrived(me.title + ": 선생님 답이 왔습니다.")) { const el = $("ecLast"); if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" }); if (DB.set.autoSpeak) speak(me.q); }
+    if (arrived(me.title + ": 선생님 답이 왔습니다.")) { const el = $("ecLast"); if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" }); if (DB.set.autoSpeak) speak(me.q, "teacher"); }
   }, (why, kind) => { if (A === me) failed(me, why, kind); });
 }
 function turnOpen(t, i, last) {
@@ -375,7 +375,7 @@ function drawTalk() {
     h += (last || A.allOpen || t.open) ? turnOpen(t, i, last)
       : '<button class="ec-fold" data-act="tFold" data-arg="' + i + '"><span>' + (i + 1) + '. ' + esc(short(t.r.transcript, 60)) + '</span><b class="' + sCls(avgOf(t.r.sc)) + '">' + r0(avgOf(t.r.sc)) + '</b></button>';
   });
-  h += '<div class="ec-bub"><small>선생님</small>' + esc(A.q) + '<div>' + say(A.q, "다시 듣기") + '</div></div>';
+  h += '<div class="ec-bub"><small>선생님</small>' + esc(A.q) + '<div>' + say(A.q, "다시 듣기", "teacher") + '</div></div>';
   if (sc.script) h += '<div class="ec-task en ec-script">' + esc(A.script) + '</div>';
   let b = "";
   if (A.phase === "sending") b += '<p>선생님이 듣고 있습니다…</p>';
@@ -681,8 +681,10 @@ function drawXi() {
   let h = '<hr class="ec-hr"><h3 class="ec-h3">더 자연스러운 목소리 (ElevenLabs, 선택)</h3><p class="ec-sub">elevenlabs.io 에서 만든 API 키를 넣으면 원어민 성우 목소리로 읽어 줍니다. 키는 이 기기에만 저장되고 기록·백업·서버에는 들어가지 않습니다. 한 번 읽은 문장은 기기에 저장해 두어 다시 들을 때는 크레딧이 들지 않습니다.</p>';
   if (!XI.key) return h + '<label for="ecXiKey">ElevenLabs API 키</label><input type="password" id="ecXiKey" data-bind="xiKey" value="' + esc(U.f.xiKey || "") + '" placeholder="sk_…" autocomplete="off">' +
     '<div class="ec-row">' + btn("저장하고 목소리 고르기", "xiSave") + '</div>' + msgBox(U.xiMsg);
-  h += '<label for="ecXiVoice">목소리 (남자·미국식이 위에 옵니다)</label><select id="ecXiVoice" data-chg="xiVoice">' +
+  h += '<label for="ecXiVoice">선생님 목소리 (미국식이 위에, 남녀가 섞여 있습니다)</label><select id="ecXiVoice" data-chg="xiVoice">' +
     (XI.voices.length ? XI.voices : (XI.voice ? [{ id: XI.voice, name: XI.name, gender: "", accent: "" }] : [])).map(v => '<option value="' + esc(v.id) + '"' + (v.id === XI.voice ? " selected" : "") + '>' + esc(v.name) + (v.gender || v.accent ? " · " + esc([v.gender === "male" ? "남자" : (v.gender === "female" ? "여자" : v.gender), v.accent].filter(Boolean).join(" · ")) : "") + '</option>').join("") + '</select>';
+  h += '<p class="ec-sub">대화의 선생님은 늘 이 목소리로 말하고, 구문·훈련 문장은 미국식 목소리 ' + (XI.pool.length || 1) + '가지가 번갈아 읽습니다. 같은 문장은 늘 같은 목소리라 크레딧이 다시 들지 않습니다. 크레딧이 떨어지면 Gemini 목소리 → 기기 목소리 순서로 넘어가고, 다음 달에 다시 차면 자동으로 돌아옵니다.</p>';
+  if (GT.note && XI.note) h += '<div class="ec-msg err">' + esc(GT.note) + '</div>';
   if (XI.limit) h += '<p class="ec-sub">이번 달 사용 ' + XI.used.toLocaleString() + ' / ' + XI.limit.toLocaleString() + ' 크레딧</p>';
   if (XI.note) h += '<div class="ec-msg err">' + esc(XI.note) + '</div>';
   return h + '<div class="ec-row">' + btn("목록·사용량 새로 받기", "xiRefresh", null, "ghost small") + btn("키 지우기", "xiDel", null, "ghost small") + '</div>' + msgBox(U.xiMsg);
@@ -733,8 +735,8 @@ const ACT = {
   xiSave: () => { const k = String(U.f.xiKey || "").trim(); if (k.length < 20) { U.xiMsg = { text: "ElevenLabs 키를 붙여 넣어 주세요.", err: true }; render(); return; } xiUnlock(); xiSetup(k, true); },
   xiRefresh: () => { xiSetup(XI.key, false); },
   xiDel: () => { speakStop(); xiClear(); U.xiMsg = { text: "ElevenLabs 키를 지웠습니다. 기기 목소리로 읽습니다." }; render(); },
-  say: a => { const t = SAY[+a]; if (t) speak(t); },
-  voice: () => { if (!speak("Hello. I am your English coach. Let's practice together.")) { U.gmsg = { text: "이 브라우저는 읽어 주기를 지원하지 않습니다.", err: true }; render(); } },
+  say: a => { const t = SAY[+a]; if (t && t.t) speak(t.t, t.role); else if (t) speak(t); },
+  voice: () => { if (!speak("Hello. I am your English coach. Let's practice together.", "teacher")) { U.gmsg = { text: "이 브라우저는 읽어 주기를 지원하지 않습니다.", err: true }; render(); } },
   routine: () => { const ns = nextStep(); ACT.start(ns || "talk"); },
   start: a => {
     if (REC.on) return;
@@ -845,7 +847,7 @@ const ACT = {
 const CHG = {
   scene: el => { U.scene = +el.value || 0; render(); },
   remember: el => { U.remember = el.checked; },
-  xiVoice: el => { xiSetVoice(el.value); XI.off = 0; U.xiMsg = null; render(); speak("Hello. I am your English coach."); },
+  xiVoice: el => { xiSetVoice(el.value); XI.off = 0; U.xiMsg = null; render(); speak("Hello. I am your English coach.", "teacher"); },
   auto: el => { DB.set.autoSpeak = el.checked; dbSave("set"); if (!el.checked) speakStop(); },
   gmodel: el => { G.model = el.value; store.set("ec_gmodel", G.model); U.gmsg = { text: G.model ? "「" + G.model + "」을 먼저 씁니다." : "가장 좋은 모델부터 자동으로 씁니다." }; render(); },
   bkFile: el => { const f = el.files && el.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => mergeText(rd.result); rd.onerror = () => { U.bkMsg = { text: "파일을 읽지 못했습니다.", err: true }; render(); }; rd.readAsText(f); }
