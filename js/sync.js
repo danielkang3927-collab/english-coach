@@ -10,7 +10,7 @@ const FB = Object.assign({
 }, window.__FB || {});
 const fbReady = () => !!(FB.apiKey && FB.projectId && FB.clientId);
 const AUTH = { uid: "", email: "", name: "", id: "", exp: 0, refresh: "", pending: null };
-const SYNC = { uid: "", email: "", st: "", un: [], last: 0, err: "", busy: false, again: false, ask: null, timer: null, onPaint: null, stats: { up: 0, down: 0 } };
+const SYNC = { uid: "", email: "", st: "", un: [], last: 0, err: "", busy: false, again: false, ask: null, timer: null, onPaint: null, onKeys: null, stats: { up: 0, down: 0 } };
 const enc = encodeURIComponent;
 const FS_ROOT = () => "projects/" + FB.projectId + "/databases/(default)/documents";
 const FS_URL = () => "https://firestore.googleapis.com/v1/" + FS_ROOT();
@@ -210,12 +210,42 @@ function syncState(tryN) {
       .catch(e => { if (e.conflict && (tryN || 0) < 4) return syncState((tryN || 0) + 1); throw e; });
   });
 }
+/* ---------- 이용 키도 계정에 함께 둔다 (본인만 읽을 수 있는 users/{uid}/state/keys). 나중에 바꾼 쪽이 이긴다. ---------- */
+const KEYS_T = () => { try { return JSON.parse(store.get("ec_keyt") || "{}") || {}; } catch (e) { return {}; } };
+function keyTouch(k) { const t = KEYS_T(); t[k] = Date.now(); store.set("ec_keyt", JSON.stringify(t)); if (typeof syncSoon === "function") syncSoon(1500); }
+function keysLocal() {
+  const t = KEYS_T(), g = store.get("ec_gkey") || "", x = store.get("ec_xikey") || "";
+  return { g: { v: g, t: +t.g || (g ? 1 : 0) }, x: { v: x, t: +t.x || (x ? 1 : 0), voice: store.get("ec_xivoice") || "", name: store.get("ec_xiname") || "" } };
+}
+function syncKeys() {
+  const path = "users/" + AUTH.uid + "/state/keys", uid = AUTH.uid;
+  return fsGet(path).then(doc => {
+    if (AUTH.uid !== uid) return false;
+    let R = {}; if (doc.exists) R = jparse(doc.fields.j && doc.fields.j.stringValue) || {};
+    const L = keysLocal(), out = {}, t = KEYS_T(); let up = false, got = [];
+    ["g", "x"].forEach(k => {
+      const r = R[k] && typeof R[k] === "object" ? R[k] : null, l = L[k];
+      if (r && (+r.t || 0) > l.t) { out[k] = r; got.push(k); t[k] = +r.t; }
+      else { out[k] = l; if (l.t > ((r && +r.t) || 0)) up = true; }
+    });
+    if (got.length) {
+      store.set("ec_keyt", JSON.stringify(t));
+      if (got.indexOf("g") >= 0) { const v = String(out.g.v || ""); if (v) store.set("ec_gkey", v); else store.del("ec_gkey"); G.key = v; if (v) gList(() => { paint(); }, () => {}); }
+      if (got.indexOf("x") >= 0) { const v = String(out.x.v || "");
+        if (v) { store.set("ec_xikey", v); XI.key = v; if (out.x.voice) { XI.voice = String(out.x.voice); XI.name = String(out.x.name || ""); store.set("ec_xivoice", XI.voice); store.set("ec_xiname", XI.name); } XI.off = 0; xiVoices().then(() => { if (!XI.voice && XI.voices[0]) xiSetVoice(XI.voices[0].id); paint(); }, () => {}); }
+        else xiClear(); }
+      if (SYNC.onKeys) SYNC.onKeys(got);
+    }
+    if (!up) return got.length > 0;
+    return fsPatch(path, { j: { stringValue: JSON.stringify(out) } }, doc.exists ? doc : null).then(() => true);
+  }).catch(() => false);                              /* 키 맞추기가 안 돼도 기록 맞추기는 성공으로 둔다. 다음에 다시 한다. */
+}
 function syncNow() {
   if (!fbReady() || !AUTH.uid || SYNC.ask) return Promise.resolve(false);
   if (SYNC.busy) { SYNC.again = true; return Promise.resolve(false); }
   clearTimeout(SYNC.timer); SYNC.busy = true; SYNC.err = ""; paint();
   const uid = AUTH.uid;
-  return pullLog().then(pushLog).then(() => syncState(0)).then(() => { SYNC.last = Date.now(); SYNC.err = ""; }, e => { if (AUTH.uid === uid) SYNC.err = String(e && e.message || e).slice(0, 220); })
+  return pullLog().then(pushLog).then(() => syncState(0)).then(() => syncKeys()).then(() => { SYNC.last = Date.now(); SYNC.err = ""; }, e => { if (AUTH.uid === uid) SYNC.err = String(e && e.message || e).slice(0, 220); })
     .then(() => { SYNC.busy = false; syncSave(); paint(); if (SYNC.again) { SYNC.again = false; return syncNow(); } return !SYNC.err; });
 }
 function syncFull() { SYNC.st = ""; SYNC.un = DB.log.map(r => r.id); syncSave(); return syncNow(); }   /* 처음부터 다시 맞춘다 (모두 받고 모두 올림) */

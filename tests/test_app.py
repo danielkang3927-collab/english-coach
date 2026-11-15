@@ -157,6 +157,41 @@ def s12(b):
     ctx, pg, errs = page(b)
     t.check("s12 연결 값이 없으면 로그인 화면 없이 바로 시작", pg.locator(".ec-gate").count() == 0); ctx.close()
 
+def s13(b):
+    print("\n== s13 이용 키가 기기 사이에 이어짐 ==")
+    fake = FakeGoogle(); KD = "users/U1001/state/keys"
+    done = "window.__ec && window.__ec.AUTH.uid && !window.__ec.SYNC.busy && window.__ec.SYNC.last > 0"
+    def keys(): d = fake.docs.get(KD); return json.loads(d["fields"]["j"]["stringValue"]) if d else None
+    def sync(pg): ev(pg, "(function(){ window.__ec.SYNC.last = 0; syncNow(); })()"); wait_js(pg, done)
+    A, pa, ea = page(b, init=FB_INIT, fake=fake)
+    ev(pa, "(function(){ localStorage.setItem('ec_gkey', 'AIzaOLDKEY_from_before_update'); })()"); pa.reload(); pa.wait_for_function("window.__ec")   # 예전 판에서 넣어 둔 키 (시각 표시 없음)
+    click(pa, "tab", "set"); click(pa, "login"); wait_js(pa, done)
+    t.check("s13 예전에 넣어 둔 Gemini 키가 로그인하면 계정에 올라감", keys() and keys()["g"]["v"] == "AIzaOLDKEY_from_before_update" and keys()["x"]["v"] == "", keys())
+    click(pa, "tab", "set"); pa.fill("#ecXiKey", "sk_test_elevenlabs_key_0001"); click(pa, "xiSave"); wait_js(pa, "XI.key && XI.voice"); sync(pa)
+    t.check("s13 ElevenLabs 키와 고른 목소리도 올라감", keys()["x"]["v"] == "sk_test_elevenlabs_key_0001" and keys()["x"]["voice"] == "vM1", keys())
+    t.check("s13 키는 기록·상태 문서와 백업에는 없음", "sk_test" not in json.dumps(fake.state("U1001")) and "AIzaOLD" not in json.dumps(fake.state("U1001")) and "sk_test" not in ev(pa, "JSON.stringify(backupMake())"))
+    B, pb, eb = page(b, init=FB_INIT, fake=fake)
+    t.check("s13 새 기기는 처음에 키가 없음", ev(pb, "G.key") == "" and ev(pb, "XI.key") == "")
+    click(pb, "tab", "set"); click(pb, "login"); wait_js(pb, done); wait_js(pb, "XI.pool.length === 3")
+    click(pb, "tab", "home"); click(pb, "tab", "set")
+    t.check("s13 새 기기에 로그인하면 두 키가 자동으로 채워짐", ev(pb, "G.key") == "AIzaOLDKEY_from_before_update" and ev(pb, "localStorage.getItem('ec_gkey')") == "AIzaOLDKEY_from_before_update" and ev(pb, "XI.key") == "sk_test_elevenlabs_key_0001" and ev(pb, "XI.voice") == "vM1"
+        and pb.locator("#ecXiKey").count() == 0 and ev(pb, "document.querySelector('#ecGKey').value") == "AIzaOLDKEY_from_before_update" and "시작하기" not in text(pb))
+    k0 = json.dumps(keys()); sync(pb)
+    t.check("s13 받기만 한 기기는 계정의 키를 바꾸지 않음", json.dumps(keys()) == k0)
+    pb.reload(); pb.wait_for_function("window.__ec")
+    t.check("s13 다시 열어도 키가 그대로", ev(pb, "G.key") != "" and ev(pb, "XI.key") != "" and ev(pb, "xiOn()"))
+    pb.wait_for_timeout(30); click(pb, "tab", "set"); pb.fill("#ecGKey", "AIzaNEWKEY456"); click(pb, "gSave"); pb.wait_for_function("document.querySelector('#ecMain').innerText.indexOf('키가 확인됐습니다') >= 0"); sync(pb)
+    sync(pa)
+    t.check("s13 한 기기에서 키를 바꾸면 다른 기기도 새 키로", keys()["g"]["v"] == "AIzaNEWKEY456" and ev(pa, "G.key") == "AIzaNEWKEY456" and ev(pa, "XI.key") == "sk_test_elevenlabs_key_0001")
+    C, pc, ec = page(b, init=FB_INIT, fake=fake); click(pc, "tab", "set"); click(pc, "login"); wait_js(pc, done)
+    t.check("s13 빈 기기가 로그인해도 계정의 키를 지우지 않음", keys()["g"]["v"] == "AIzaNEWKEY456" and keys()["x"]["v"] != "" and ev(pc, "G.key") == "AIzaNEWKEY456")
+    click(pc, "tab", "set"); click(pc, "logout"); click(pc, "gateSkip") if pc.locator('[data-act="gateSkip"]').count() else None
+    t.check("s13 로그아웃해도 이 기기의 키는 남음", ev(pc, "localStorage.getItem('ec_gkey')") == "AIzaNEWKEY456")
+    pa.wait_for_timeout(30); click(pa, "tab", "set"); click(pa, "xiDel"); sync(pa); sync(pb)
+    t.check("s13 일부러 지운 키는 다른 기기에서도 지워짐 (다른 키는 그대로)", keys()["x"]["v"] == "" and ev(pb, "XI.key") == "" and ev(pb, "G.key") == "AIzaNEWKEY456")
+    t.check("s13 처리기·오류 없음", handlers_ok(pa) == [] and handlers_ok(pb) == [] and not real(ea) and not real(eb) and not real(ec), [real(ea), real(eb), real(ec)])
+    A.close(); B.close(); C.close()
+
 def s2(b):
     print("\n== s2 레벨 테스트 ==")
     ctx, pg, errs = page(b); set_key(pg)

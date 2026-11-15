@@ -678,7 +678,7 @@ function mergeText(text) {
 
 /* ---------- 설정 ---------- */
 function drawXi() {
-  let h = '<hr class="ec-hr"><h3 class="ec-h3">더 자연스러운 목소리 (ElevenLabs, 선택)</h3><p class="ec-sub">elevenlabs.io 에서 만든 API 키를 넣으면 원어민 성우 목소리로 읽어 줍니다. 키는 이 기기에만 저장되고 기록·백업·서버에는 들어가지 않습니다. 한 번 읽은 문장은 기기에 저장해 두어 다시 들을 때는 크레딧이 들지 않습니다.</p>';
+  let h = '<hr class="ec-hr"><h3 class="ec-h3">더 자연스러운 목소리 (ElevenLabs, 선택)</h3><p class="ec-sub">elevenlabs.io 에서 만든 API 키를 넣으면 원어민 성우 목소리로 읽어 줍니다. 키는 기록·백업 파일에는 들어가지 않고, 구글로 로그인하면 계정 저장소에 함께 두어 다른 기기에서도 자동으로 채워집니다. 한 번 읽은 문장은 기기에 저장해 두어 다시 들을 때는 크레딧이 들지 않습니다.</p>';
   if (!XI.key) return h + '<label for="ecXiKey">ElevenLabs API 키</label><input type="password" id="ecXiKey" data-bind="xiKey" value="' + esc(U.f.xiKey || "") + '" placeholder="sk_…" autocomplete="off">' +
     '<div class="ec-row">' + btn("저장하고 목소리 고르기", "xiSave") + '</div>' + msgBox(U.xiMsg);
   h += '<label for="ecXiVoice">선생님 목소리 (미국식이 위에, 남녀가 섞여 있습니다)</label><select id="ecXiVoice" data-chg="xiVoice">' +
@@ -696,14 +696,14 @@ function xiSetup(key, first) {
     XI.key = key; store.set("ec_xikey", key); U.f.xiKey = "";
     if (!XI.voices.some(v => v.id === XI.voice)) xiSetVoice(vs[0].id);
     return xiUsage(key).catch(() => null);
-  }).then(() => { XI.off = 0; XI.note = ""; U.xiMsg = { text: first ? "연결했습니다. 목소리는 " + XI.name + " 입니다. 「목소리 들어 보기」로 확인해 보세요." : "새로 받았습니다." }; if (U.tab === "set") render(); },
+  }).then(() => { keyTouch("x"); XI.off = 0; XI.note = ""; U.xiMsg = { text: first ? "연결했습니다. 목소리는 " + XI.name + " 입니다. 「목소리 들어 보기」로 확인해 보세요." : "새로 받았습니다." }; if (U.tab === "set") render(); },
     e => { U.xiMsg = { text: String(e && e.message || e), err: true }; if (U.tab === "set") render(); });
 }
 function drawSyncCard() {
   let b;
   if (!fbReady()) b = '<p class="ec-sub">지금은 이 기기의 이 브라우저에 저장됩니다. 구글 로그인은 연결 값을 넣는 마지막 단계가 남았습니다. 그때까지는 「기록」의 백업을 써 주세요.</p>';
   else if (SYNC.ask) b = '<div class="ec-msg err">이 기기의 기록은 다른 계정(' + esc(SYNC.ask.old || "이전 계정") + ')으로 이어 쓰던 것입니다. 지금 로그인한 ' + esc(SYNC.ask.email || "새 계정") + ' 계정에 합칠까요? 합치면 이 기기의 기록이 이 계정에도 올라갑니다.</div><div class="ec-row">' + btn("이 계정에 합치기", "acctMerge") + btn("합치지 않고 로그아웃", "logout", null, "ghost") + '</div>';
-  else if (!AUTH.uid) b = (SYNC.err ? '<div class="ec-msg err">' + esc(SYNC.err) + '</div>' : "") + '<p class="ec-sub">구글로 로그인하면 휴대폰·아이패드·노트북 어디서 열어도 기록이 이어집니다. 기록은 지우거나 덮어쓰지 않고 합치기만 합니다. Gemini 이용 키는 올라가지 않으니 기기마다 한 번씩 넣어 주세요.</p>' + btn("구글로 로그인", "login", null, "wide");
+  else if (!AUTH.uid) b = (SYNC.err ? '<div class="ec-msg err">' + esc(SYNC.err) + '</div>' : "") + '<p class="ec-sub">구글로 로그인하면 휴대폰·아이패드·노트북 어디서 열어도 기록이 이어집니다. 기록은 지우거나 덮어쓰지 않고 합치기만 합니다. Gemini·ElevenLabs 이용 키도 함께 맞춰지므로 한 기기에서 한 번만 넣으면 됩니다.</p>' + btn("구글로 로그인", "login", null, "wide");
   else b = '<p><b>' + esc(AUTH.email || AUTH.name || "로그인됨") + '</b></p><p class="ec-sub">' + (SYNC.busy ? "기록을 맞추는 중…" : (SYNC.last ? "마지막으로 맞춘 때 " + stamp(SYNC.last).slice(5) : "아직 맞추지 않음")) + ' · 이 기기 기록 ' + DB.log.length + '개 · ' + (SYNC.un.length ? '아직 올리지 않은 것 ' + SYNC.un.length + '개' : '모두 올라가 있음') + '</p>' +
     (SYNC.err ? '<div class="ec-msg err">' + esc(SYNC.err) + ' 기록은 이 기기에 그대로 있습니다.</div>' : "") +
     '<div class="ec-row">' + btn("지금 맞추기", "syncGo") + btn("처음부터 다시 맞추기", "syncAll", null, "ghost small") + btn("로그아웃", "logout", null, "ghost small") + '</div>';
@@ -713,7 +713,7 @@ function drawSyncCard() {
 }
 function drawSettings() {
   const order = gOrder();
-  let g = '<p class="ec-sub">선생님 역할을 하는 구글 Gemini의 이용 키입니다. 이 기기에만 저장되고 기록·백업에는 들어가지 않습니다. 키는 aistudio.google.com 의 「Get API key」에서 무료로 만듭니다.</p>' +
+  let g = '<p class="ec-sub">선생님 역할을 하는 구글 Gemini의 이용 키입니다. 기록·백업 파일에는 들어가지 않습니다. 구글로 로그인하면 본인만 읽을 수 있는 계정 저장소에 함께 두어, 다른 기기에서도 자동으로 채워집니다. 키는 aistudio.google.com 의 「Get API key」에서 무료로 만듭니다.</p>' +
     '<label for="ecGKey">Gemini 이용 키</label><input type="password" id="ecGKey" data-bind="gkey" value="' + esc(U.f.gkey) + '" autocomplete="off" placeholder="AIza…">' +
     '<label class="ec-check"><input type="checkbox" id="ecGRemember" data-chg="remember"' + (U.remember ? " checked" : "") + '> 이 기기에 키 기억하기</label>' +
     '<div class="ec-row">' + btn("저장하고 모델 확인", "gSave") + btn("키 지우기", "gClear", null, "ghost") + '</div>' + msgBox(U.gmsg);
@@ -734,7 +734,7 @@ const ACT = {
   bottom: () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" }),
   xiSave: () => { const k = String(U.f.xiKey || "").trim(); if (k.length < 20) { U.xiMsg = { text: "ElevenLabs 키를 붙여 넣어 주세요.", err: true }; render(); return; } xiUnlock(); xiSetup(k, true); },
   xiRefresh: () => { xiSetup(XI.key, false); },
-  xiDel: () => { speakStop(); xiClear(); U.xiMsg = { text: "ElevenLabs 키를 지웠습니다. 기기 목소리로 읽습니다." }; render(); },
+  xiDel: () => { speakStop(); xiClear(); keyTouch("x"); U.xiMsg = { text: "ElevenLabs 키를 지웠습니다. 기기 목소리로 읽습니다." }; render(); },
   say: a => { const t = SAY[+a]; if (t && t.t) speak(t.t, t.role); else if (t) speak(t); },
   voice: () => { if (!speak("Hello. I am your English coach. Let's practice together.", "teacher")) { U.gmsg = { text: "이 브라우저는 읽어 주기를 지원하지 않습니다.", err: true }; render(); } },
   routine: () => { const ns = nextStep(); ACT.start(ns || "talk"); },
@@ -822,10 +822,10 @@ const ACT = {
     if (!G.key) { U.gmsg = { text: "Gemini 이용 키를 넣어 주세요.", err: true }; render(); return; }
     let kept = true; if (U.remember) kept = store.set("ec_gkey", G.key); else store.del("ec_gkey");
     U.gmsg = { text: "모델 목록을 불러오는 중…" }; render();
-    gList(pick => { U.gmsg = { text: "키가 확인됐습니다. 「" + pick + "」부터 쓰고, 한도가 차면 아래 순서대로 자동으로 넘어갑니다." + (U.remember && !kept ? " (이 브라우저가 저장을 막아, 열어 둔 동안만 기억합니다.)" : "") }; if (U.tab === "set") render(); },
+    gList(pick => { if (U.remember && kept) keyTouch("g"); U.gmsg = { text: "키가 확인됐습니다. 「" + pick + "」부터 쓰고, 한도가 차면 아래 순서대로 자동으로 넘어갑니다." + (U.remember && !kept ? " (이 브라우저가 저장을 막아, 열어 둔 동안만 기억합니다.)" : "") }; if (U.tab === "set") render(); },
       why => { U.gmsg = { text: why, err: true }; if (U.tab === "set") render(); });
   },
-  gClear: () => { G.key = ""; U.f.gkey = ""; store.del("ec_gkey"); U.gmsg = { text: "키를 지웠습니다." }; render(); },
+  gClear: () => { G.key = ""; U.f.gkey = ""; store.del("ec_gkey"); keyTouch("g"); U.gmsg = { text: "키를 지웠습니다." + (AUTH.uid ? " 로그인한 다른 기기에서도 지워집니다." : "") }; render(); },
   gReset: () => { gReset(); U.gmsg = { text: "한도 기록을 지웠습니다. 다음 요청부터 가장 좋은 모델로 다시 시도합니다." }; render(); },
   minutes: a => { const m = +a; if ([15, 30, 60].indexOf(m) >= 0) { DB.set.minutes = m; dbSave("set"); render(); } },
   miss: a => { const w = weekNo(today()), m = DB.miss[w] || (DB.miss[w] = {}); m[a] = m[a] > 0 ? -now() : now(); dbSave("miss"); syncSoon(); render(); },
@@ -847,7 +847,7 @@ const ACT = {
 const CHG = {
   scene: el => { U.scene = +el.value || 0; render(); },
   remember: el => { U.remember = el.checked; },
-  xiVoice: el => { xiSetVoice(el.value); XI.off = 0; U.xiMsg = null; render(); speak("Hello. I am your English coach.", "teacher"); },
+  xiVoice: el => { xiSetVoice(el.value); keyTouch("x"); XI.off = 0; U.xiMsg = null; render(); speak("Hello. I am your English coach.", "teacher"); },
   auto: el => { DB.set.autoSpeak = el.checked; dbSave("set"); if (!el.checked) speakStop(); },
   gmodel: el => { G.model = el.value; store.set("ec_gmodel", G.model); U.gmsg = { text: G.model ? "「" + G.model + "」을 먼저 씁니다." : "가장 좋은 모델부터 자동으로 씁니다." }; render(); },
   bkFile: el => { const f = el.files && el.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => mergeText(rd.result); rd.onerror = () => { U.bkMsg = { text: "파일을 읽지 못했습니다.", err: true }; render(); }; rd.readAsText(f); }
@@ -880,7 +880,7 @@ window.addEventListener("pagehide", daySave);
 
 /* ---------- 시작 ---------- */
 const MIGRATED = dbLoad();
-gLoad(); authLoad(); xiLoad(); xiEnsurePool().then(ok => { if (ok && U.tab === "set") render(); }); document.addEventListener("pointerdown", () => { xiUnlock(); }, true);
+gLoad(); authLoad(); xiLoad(); SYNC.onKeys = got => { if (got.indexOf("g") >= 0) { U.f.gkey = G.key; U.remember = true; } U.keyMsg = "계정에 저장해 둔 이용 키를 이 기기에 넣었습니다."; }; xiEnsurePool().then(ok => { if (ok && U.tab === "set") render(); }); document.addEventListener("pointerdown", () => { xiUnlock(); }, true);
 U.f.gkey = G.key; U.remember = G.key ? !!store.get("ec_gkey") : true; U.scene = today() % 6;
 G.onChain = () => { if (U.tab === "set") render(); };
 SYNC.onPaint = () => { if (REC.on) return; const ae = document.activeElement, typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName); if (!typing && (U.tab === "set" || U.tab === "home" || U.tab === "rec")) render(); };
