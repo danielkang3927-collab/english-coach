@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 15;
+const BUILD = 16;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -539,11 +539,11 @@ function gCall(req, status, done, fail) {
     contents: [{ role: "user", parts: req.parts }],
     generationConfig: { responseMimeType: "application/json", temperature: req.temp == null ? 0.4 : req.temp }
   });
-  const tried = [], netTry = {}; let lastNet = "";
+  const tried = [], netTry = {}; let lastNet = "", netN = 0;
   const next = why => { if (why) status(why); if (!G.chain.length) { gList(() => run(), fail); return; } run(); };
   function run() {
     const order = gOrder().filter(gFree).filter(n => tried.indexOf(n) < 0);
-    if (!order.length || tried.length >= 6) {
+    if (!order.length || tried.length >= 6 || netN >= 3) {      /* 연결 문제는 세 번까지만 해 보고 멈춘다 (녹음은 그대로 남는다) */
       if (G.onChain) G.onChain();
       if (lastNet) fail("구글에 연결하지 못했습니다. 인터넷 연결을 확인한 뒤 「다시 보내기」를 눌러 주세요. (" + lastNet + ")", "net"); else fail(gStuck(), "quota"); return;
     }
@@ -570,7 +570,10 @@ function gCall(req, status, done, fail) {
       done(r, model);
     })).catch(e => {
       lastNet = String((e && e.name === "AbortError") ? "응답 시간 초과" : ((e && e.message) || e)).slice(0, 60);
-      if (!netTry[model]) { netTry[model] = 1; tried.pop(); status("연결이 끊겨 다시 보내는 중…"); setTimeout(run, 1500); return; }
+      const slow = !!(e && e.name === "AbortError"); netN++;
+      if (netN >= 3) { run(); return; }
+      if (slow) { next("「" + model + "」이 75초 넘게 답이 없어 다음 모델로 보내는 중…"); return; }   /* 느린 모델은 다시 기다리지 않는다 */
+      if (!netTry[model]) { netTry[model] = 1; tried.pop(); status("연결이 끊겨 다시 보내는 중… (" + netN + "번째)"); setTimeout(run, 1500); return; }
       next("「" + model + "」에 연결되지 않아 다음 모델로 보내는 중…");
     });
   }

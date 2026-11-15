@@ -17,8 +17,10 @@ const tagChip = g => g && D.TAGS[g] ? '<button class="ec-chip" data-act="tagOpen
 const card = (title, body, cls) => '<section class="ec-card ' + (cls || "") + '">' + (title ? '<h2>' + title + '</h2>' : "") + body + '</section>';
 const short = (s, n) => { s = String(s || ""); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
 const msgBox = m => m ? '<div class="ec-msg' + (m.err ? " err" : "") + '">' + esc(m.text) + '</div>' : "";
+const waitHtml = () => '<p class="ec-sub" id="ecWait"></p>';          /* 보내는 동안 몇 초째인지 (1초마다 채운다) */
 const noteHtml = () => '<div id="ecMsg" class="' + (U.note ? "ec-msg" + (U.note.err ? " err" : "") : "") + '">' + (U.note ? esc(U.note.text) : "") + '</div>';
 function setMsg(text, err) {
+  if (A && A.phase === "sending" && text && !err) A.prog = text;       /* 다른 화면에 갔다 와도 진행 안내가 남게 */
   U.note = text ? { text, err: !!err } : null;
   const el = $("ecMsg"); if (el) { el.className = text ? "ec-msg" + (err ? " err" : "") : ""; el.textContent = text || ""; }
 }
@@ -57,7 +59,7 @@ function render() {
   keepAwake(REC.on || !!(A && A.phase === "sending"));
 }
 function go(tab) {
-  U.tab = tab; U.note = (tab === "train" && A && A.phase === "fail" && A.failMsg) ? { text: A.failMsg, err: true } : null;
+  U.tab = tab; U.note = (tab === "train" && A && A.phase === "fail" && A.failMsg) ? { text: A.failMsg, err: true } : ((tab === "train" && A && A.phase === "sending" && A.prog) ? { text: A.prog } : null);
   if (tab === "train") U.flash = null;
   render(); window.scrollTo(0, 0);
 }
@@ -232,7 +234,7 @@ function focusLine(it) {
 function drawBatch() {
   const n = A.items.length;
   if (A.phase === "done") return drawBatchDone();
-  if (A.phase === "sending") return card("", '<p>선생님이 녹음 ' + A.clips.length + '개를 듣고 있습니다…</p>' + noteHtml());
+  if (A.phase === "sending") return card("", '<p>선생님이 녹음 ' + A.clips.length + '개를 듣고 있습니다…</p>' + noteHtml() + waitHtml());
   if (A.phase === "fail") return card("", noteHtml() + '<p class="ec-sub">녹음 ' + A.clips.length + '개는 그대로 있습니다.</p>' + btn("다시 보내기", "bSend"));
   const it = A.items[A.i], shown = A.phase === "shown", fl = focusLine(it);
   let h = '<div class="ec-prog"><span>' + (A.i + 1) + ' / ' + n + '</span><div class="ec-bar"><i style="width:' + Math.round((A.i + (shown ? 1 : 0)) / n * 100) + '%"></i></div></div>';
@@ -423,7 +425,7 @@ function drawRetell() {
     h += recBtn("다시 말하기 녹음") + noteHtml() + (REC.on ? "" : '<div class="ec-row end">' + btn("다시 보기", "rShow", null, "ghost small") + '</div>');
     return card("", h);
   }
-  if (A.phase === "sending") return card("", head + '<p>선생님이 듣고 있습니다…</p>' + noteHtml());
+  if (A.phase === "sending") return card("", head + '<p>선생님이 듣고 있습니다…</p>' + noteHtml() + waitHtml());
   if (A.phase === "fail") return card("", head + noteHtml() + '<p class="ec-sub">방금 녹음은 그대로 있습니다.</p><div class="ec-row">' + btn("다시 보내기", "rResend") + btn("새로 녹음", "rHide", null, "ghost") + '</div>');
   /* 결과: 처음과 이번을 나란히 */
   const r = A.res, m0 = src.m || [], m1 = A.mp, s0 = src.s || [];
@@ -475,7 +477,7 @@ function startTest() {
 function drawTest() {
   if (A.phase === "intro") return card("", '<p>과제 네 개로 지금 수준을 잽니다. 약 6분, 채점 요청은 4번 씁니다.</p><ul class="ec-ul"><li>조용한 곳에서, 준비하거나 받아 적지 말고 평소처럼 말해 주세요.</li><li>같은 조건으로 반복해야 변화가 보입니다. 일주일에 한 번을 권합니다.</li><li>속도·멈춤·높낮이는 기기가 직접 재고, 발음·문법은 채점 기준표를 준 AI가 봅니다. 공인 시험이 아닌 참고 등급입니다.</li></ul>' + btn("시작", "xBegin", null, "wide"));
   if (A.phase === "done") return drawTestDone();
-  if (A.phase === "sending") return card("", '<p>채점하고 있습니다. 1분쯤 걸립니다.</p>' + noteHtml());
+  if (A.phase === "sending") return card("", '<p>채점하고 있습니다. 과제마다 20초에서 1분쯤 걸립니다. 다른 화면에 다녀와도 계속됩니다.</p>' + noteHtml() + waitHtml());
   if (A.phase === "fail") return card("", noteHtml() + '<p class="ec-sub">녹음은 그대로 있습니다.</p><div class="ec-row">' + btn("이어서 채점", "xSend") + (A.redo != null ? btn(TEST_NAME[A.tasks[A.redo].k] + " 다시 녹음", "xRedoTask", null, "ghost") : "") + '</div>');
   const t = A.tasks[A.i], shown = A.phase === "shown";
   let h = '<div class="ec-prog"><span>' + (A.i + 1) + ' / ' + A.tasks.length + '</span><div class="ec-bar"><i style="width:' + Math.round((A.i + (shown ? 1 : 0)) / A.tasks.length * 100) + '%"></i></div></div>';
@@ -864,6 +866,7 @@ document.addEventListener("input", e => { const k = e.target.getAttribute && e.t
 setInterval(() => {
   let speaking = false; try { speaking = !!(window.speechSynthesis && window.speechSynthesis.speaking); } catch (e) {}
   const turned = beat(REC.on || !!(A && A.phase === "sending") || speaking);
+  if (A && A.phase === "sending") { if (!A.t0) A.t0 = Date.now(); const w = $("ecWait"); if (w) w.textContent = Math.round((Date.now() - A.t0) / 1000) + "초째 기다리는 중"; } else if (A && A.t0) A.t0 = 0;
   if (turned && U.tab === "home" && !REC.on) render();
 }, 1000);
 document.addEventListener("visibilitychange", () => {

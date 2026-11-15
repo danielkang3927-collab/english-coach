@@ -274,6 +274,17 @@ def s2(b):
     ev(pg, "window.__ec.A = null")
     t.check("s2 끝까지 오류 없음", not errs, errs); ctx.close()
 
+def s14(b):
+    print("\n== s14 채점 중 안내 ==")
+    ctx, pg, errs = page(b); set_key(pg)
+    ev(pg, "(function(){ window.__ec.A = {type:'test', title:'레벨 테스트', phase:'sending', tasks:[], i:0}; window.__ec.go('train'); setMsg('채점 중 2 / 4…'); })()")
+    click(pg, "tab", "home"); click(pg, "tab", "train"); pg.wait_for_timeout(1300)
+    t.check("s14 다른 화면에 다녀와도 진행 안내가 남고, 몇 초째인지 보임", "채점 중 2 / 4" in text(pg) and "초째 기다리는 중" in text(pg), text(pg)[:200])
+    ev(pg, "(function(){ window.__ec.A = null; window.__ec.go('home'); })()")
+    r = ev(pg, "new Promise(res => { window.__mock.plan = ['net','net','net','net','net','net']; const st = []; gCall({sys:'x', parts:[{text:'MODE: talk'}]}, s => st.push(s), () => res({ok:true, st}), (why, kind) => res({ok:false, why, kind, st, n: window.__calls.filter(c => c.kind==='gen').length})); })")
+    t.check("s14 연결이 계속 안 되면 세 번만 해 보고 멈춤", r["ok"] is False and r["kind"] == "net" and r["n"] == 3 and "다시 보내기" in r["why"], r)
+    t.check("s14 오류 없음", not [e for e in errs if "Failed to load" not in e and "fetch" not in e.lower()], errs); ctx.close()
+
 def s3(b):
     print("\n== s3 하루 루틴 ==")
     ctx, pg, errs = page(b); set_key(pg); click(pg, "tab", "home")
