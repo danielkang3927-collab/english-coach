@@ -832,7 +832,7 @@ def s9(b):
     t.check("s9 올라간 기록의 모양(시각·내용·서버 시각)", one["fields"]["t"]["integerValue"] == str(rec0["t"]) and "timestampValue" in one["fields"]["st"] and rec0["id"] in logs)
     st = fake.state("U1001"); dk = str(ev(A, "today()"))
     t.check("s9 구문 상자·날짜별 기록도 올라감", len(st["srs"]) == 8 and st["day"][dk]["st"]["phr"] == 8 and st["day"][dk]["st"]["talk"] == 1, st["day"])
-    t.check("s9 Gemini 키는 서버에 올라가지 않음", "AIzaTESTKEY" not in json.dumps(fake.docs))
+    t.check("s9 Gemini 키는 본인 키 문서(state/keys)에만 있고 기록·상태 문서에는 없음", "AIzaTESTKEY" not in json.dumps({k: v for k, v in fake.docs.items() if not k.endswith("/state/keys")}))
     bad = handlers_ok(A); t.check("s9 설정 화면 처리기", bad == [], bad)
     shot(A, "p30_login_done")
 
