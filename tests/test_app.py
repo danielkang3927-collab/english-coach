@@ -113,6 +113,10 @@ def s11(b):
     bk = ev(pg, "JSON.stringify(backupMake()) + JSON.stringify(stateOut())")
     t.check("s11 ElevenLabs 키는 백업·올리는 내용에 들어가지 않음", "sk_test" not in bk)
     pg.reload(); pg.wait_for_function("window.__ec"); ev(pg, said)
+    ev(pg, "(function(){ localStorage.removeItem('ec_xipool'); localStorage.removeItem('ec_xipooln'); })()"); pg.reload(); pg.wait_for_function("window.__ec"); wait_js(pg, "XI.pool.length === 3")
+    click(pg, "tab", "set")
+    t.check("s11 목소리 묶음이 없던 기기는 열 때 자동으로 받아 오고 이름을 보여 줌", ev(pg, "XI.pool.join()") == "vM1,vM2,vF1" and "Brian, Zed, Alice" in text(pg) and ev(pg, "XI.voice") == "vM2")
+    pg.reload(); pg.wait_for_function("window.__ec"); ev(pg, said)
     t.check("s11 다시 열어도 목소리 유지", ev(pg, "XI.key") != "" and ev(pg, "XI.voice") == "vM2" and ev(pg, "xiOn()"))
     t.check("s11 여러 목소리: 선생님은 고른 목소리, 문장은 목소리 묶음에서 (같은 문장은 늘 같은 목소리)", ev(pg, "XI.pool.join()") == "vM1,vM2,vF1" and ev(pg, "xiVoiceFor('Any line', 'teacher')") == "vM2"
         and ev(pg, "['a b c','Peace be with you.','How are you today?','I went home.','Thank you so much.','See you soon.'].map(x => xiVoiceFor(x)).filter((v, i, a) => a.indexOf(v) === i).length") >= 2 and ev(pg, "xiVoiceFor('Peace be with you.') === xiVoiceFor('Peace be with you.')"))

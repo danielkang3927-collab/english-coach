@@ -683,7 +683,7 @@ function drawXi() {
     '<div class="ec-row">' + btn("저장하고 목소리 고르기", "xiSave") + '</div>' + msgBox(U.xiMsg);
   h += '<label for="ecXiVoice">선생님 목소리 (미국식이 위에, 남녀가 섞여 있습니다)</label><select id="ecXiVoice" data-chg="xiVoice">' +
     (XI.voices.length ? XI.voices : (XI.voice ? [{ id: XI.voice, name: XI.name, gender: "", accent: "" }] : [])).map(v => '<option value="' + esc(v.id) + '"' + (v.id === XI.voice ? " selected" : "") + '>' + esc(v.name) + (v.gender || v.accent ? " · " + esc([v.gender === "male" ? "남자" : (v.gender === "female" ? "여자" : v.gender), v.accent].filter(Boolean).join(" · ")) : "") + '</option>').join("") + '</select>';
-  h += '<p class="ec-sub">대화의 선생님은 늘 이 목소리로 말하고, 구문·훈련 문장은 미국식 목소리 ' + (XI.pool.length || 1) + '가지가 번갈아 읽습니다. 같은 문장은 늘 같은 목소리라 크레딧이 다시 들지 않습니다. 크레딧이 떨어지면 Gemini 목소리 → 기기 목소리 순서로 넘어가고, 다음 달에 다시 차면 자동으로 돌아옵니다.</p>';
+  h += '<p class="ec-sub">대화의 선생님은 늘 이 목소리로 말하고, 구문·훈련 문장은 목소리 ' + (XI.pool.length || 1) + '가지' + (XI.poolNames.length ? " (" + esc(XI.poolNames.join(", ")) + ")" : "") + '가 번갈아 읽습니다. 같은 문장은 늘 같은 목소리라 크레딧이 다시 들지 않습니다. 크레딧이 떨어지면 Gemini 목소리 → 기기 목소리 순서로 넘어가고, 다음 달에 다시 차면 자동으로 돌아옵니다.</p>';
   if (GT.note && XI.note) h += '<div class="ec-msg err">' + esc(GT.note) + '</div>';
   if (XI.limit) h += '<p class="ec-sub">이번 달 사용 ' + XI.used.toLocaleString() + ' / ' + XI.limit.toLocaleString() + ' 크레딧</p>';
   if (XI.note) h += '<div class="ec-msg err">' + esc(XI.note) + '</div>';
@@ -880,7 +880,7 @@ window.addEventListener("pagehide", daySave);
 
 /* ---------- 시작 ---------- */
 const MIGRATED = dbLoad();
-gLoad(); authLoad(); xiLoad(); document.addEventListener("pointerdown", () => { xiUnlock(); }, true);
+gLoad(); authLoad(); xiLoad(); xiEnsurePool().then(ok => { if (ok && U.tab === "set") render(); }); document.addEventListener("pointerdown", () => { xiUnlock(); }, true);
 U.f.gkey = G.key; U.remember = G.key ? !!store.get("ec_gkey") : true; U.scene = today() % 6;
 G.onChain = () => { if (U.tab === "set") render(); };
 SYNC.onPaint = () => { if (REC.on) return; const ae = document.activeElement, typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName); if (!typing && (U.tab === "set" || U.tab === "home" || U.tab === "rec")) render(); };

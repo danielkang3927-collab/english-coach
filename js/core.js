@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 13;
+const BUILD = 14;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -372,10 +372,12 @@ function speakDevice(text) {
   } catch (e) { return false; }
 }
 /* ---------- ElevenLabs 목소리 (선택). 키는 이 기기에만 둔다. 한 번 읽은 문장은 기기에 저장해 다시 쓰므로 크레딧이 또 들지 않는다. ---------- */
-const XI = { key: "", voice: "", name: "", pool: [], voices: [], used: null, limit: null, audio: null, url: "", note: "", off: 0, seq: 0, open: false, stats: { net: 0, hit: 0 } };
+const XI = { key: "", voice: "", name: "", pool: [], poolNames: [], voices: [], used: null, limit: null, audio: null, url: "", note: "", off: 0, seq: 0, open: false, stats: { net: 0, hit: 0 } };
 const XI_BASE = "https://api.elevenlabs.io/v1/", XI_MODEL = "eleven_flash_v2_5", XI_MAX = 400;
 const XI_SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
-function xiLoad() { XI.key = store.get("ec_xikey") || ""; XI.voice = store.get("ec_xivoice") || ""; XI.name = store.get("ec_xiname") || ""; try { XI.pool = JSON.parse(store.get("ec_xipool") || "[]") || []; } catch (e) { XI.pool = []; } }
+function xiLoad() { XI.key = store.get("ec_xikey") || ""; XI.voice = store.get("ec_xivoice") || ""; XI.name = store.get("ec_xiname") || ""; try { XI.pool = JSON.parse(store.get("ec_xipool") || "[]") || []; XI.poolNames = JSON.parse(store.get("ec_xipooln") || "[]") || []; } catch (e) { XI.pool = []; XI.poolNames = []; } }
+/* 목소리 묶음이 아직 없으면(예전 판에서 키를 넣은 경우) 열 때 한 번 받아 온다 */
+function xiEnsurePool() { return (XI.key && XI.pool.length < 2) ? xiVoices().then(() => true, () => false) : Promise.resolve(false); }
 function xiOn() { return !!(XI.key && XI.voice) && Date.now() > XI.off; }
 function xiErr(status, tx) {
   let d = ""; try { const j = JSON.parse(tx); d = (j.detail && (j.detail.status || j.detail.message)) || j.message || ""; if (typeof d !== "string") d = JSON.stringify(d); } catch (e) { d = String(tx || "").slice(0, 80); }
@@ -402,13 +404,14 @@ function xiVoices(key) {                              /* 미국식이 위로, �
     vs.sort((a, b) => a.name.localeCompare(b.name));
     const us = xiMix(vs.filter(v => /americ/.test(v.accent))), rest = xiMix(vs.filter(v => !/americ/.test(v.accent)));
     XI.voices = us.concat(rest);
-    XI.pool = (us.length >= 2 ? us : XI.voices).slice(0, 6).map(v => v.id); store.set("ec_xipool", JSON.stringify(XI.pool));
+    const pv = (us.length >= 2 ? us : XI.voices).slice(0, 6);
+    XI.pool = pv.map(v => v.id); XI.poolNames = pv.map(v => v.name); store.set("ec_xipool", JSON.stringify(XI.pool)); store.set("ec_xipooln", JSON.stringify(XI.poolNames));
     return XI.voices;
   });
 }
 function xiUsage(key) { return xiGet("user/subscription", key).then(j => { XI.used = +j.character_count || 0; XI.limit = +j.character_limit || 0; return j; }); }
 function xiSetVoice(id) { const v = XI.voices.filter(x => x.id === id)[0]; if (!v) return; XI.voice = v.id; XI.name = v.name; store.set("ec_xivoice", v.id); store.set("ec_xiname", v.name); }
-function xiClear() { XI.key = ""; XI.voice = ""; XI.name = ""; XI.voices = []; XI.pool = []; XI.used = XI.limit = null; XI.note = ""; ["ec_xikey", "ec_xivoice", "ec_xiname", "ec_xipool"].forEach(k => store.del(k)); }
+function xiClear() { XI.key = ""; XI.voice = ""; XI.name = ""; XI.voices = []; XI.pool = []; XI.used = XI.limit = null; XI.note = ""; ["ec_xikey", "ec_xivoice", "ec_xiname", "ec_xipool", "ec_xipooln"].forEach(k => store.del(k)); }
 function xiUnlock() { if (XI.open || !XI.key) return; try { if (!XI.audio) XI.audio = new Audio(); XI.audio.src = XI_SILENT; const p = XI.audio.play(); if (p && p.then) p.then(() => { XI.open = true; }, () => {}); } catch (e) {} }
 function xiPlay(buf, type) {
   return new Promise(res => {
