@@ -122,6 +122,26 @@ def s11(b):
     t.check("s11 키 지우기", ev(pg, "XI.key") == "" and ev(pg, "localStorage.getItem('ec_xikey')") is None and pg.locator("#ecXiKey").count() == 1)
     t.check("s11 오류 없음", not [e for e in errs if "401" not in e and "Failed to load" not in e], errs); ctx.close()
 
+def s12(b):
+    print("\n== s12 처음 화면: 구글 로그인부터 ==")
+    fake = FakeGoogle()
+    ctx, pg, errs = page(b, init=FB_GATE, fake=fake)
+    t.check("s12 처음 열면 로그인 화면만 보임", pg.locator(".ec-gate").count() == 1 and "구글로 로그인" in text(pg) and not pg.locator("#ecNav").is_visible() and pg.locator('[data-act="login"]').count() == 1)
+    shot(pg, "p41_gate")
+    click(pg, "login"); wait_js(pg, "window.__ec && window.__ec.AUTH.uid && !window.__ec.SYNC.busy && window.__ec.SYNC.last > 0")
+    t.check("s12 로그인하면 앱으로 들어감", pg.locator(".ec-gate").count() == 0 and pg.locator("#ecNav").is_visible() and ev(pg, "AUTH.email") != "")
+    pg.reload(); pg.wait_for_function("window.__ec")
+    t.check("s12 다시 열어도 로그인 화면이 안 나옴", pg.locator(".ec-gate").count() == 0 and "오늘" in text(pg))
+    click(pg, "tab", "set"); click(pg, "logout")
+    t.check("s12 로그아웃하면 다시 로그인 화면", pg.locator(".ec-gate").count() == 1)
+    click(pg, "gateSkip")
+    t.check("s12 「로그인 없이 시작」→ 홈, 기록은 그대로", pg.locator(".ec-gate").count() == 0 and "오늘" in text(pg) and pg.locator("#ecNav").is_visible())
+    pg.reload(); pg.wait_for_function("window.__ec")
+    t.check("s12 건너뛴 뒤에는 다시 묻지 않고, 홈·설정에서 로그인할 수 있음", pg.locator(".ec-gate").count() == 0 and pg.locator('[data-act="login"]').count() == 1 and handlers_ok(pg) == [])
+    t.check("s12 오류 없음", not real(errs), errs); ctx.close()
+    ctx, pg, errs = page(b)
+    t.check("s12 연결 값이 없으면 로그인 화면 없이 바로 시작", pg.locator(".ec-gate").count() == 0); ctx.close()
+
 def s2(b):
     print("\n== s2 레벨 테스트 ==")
     ctx, pg, errs = page(b); set_key(pg)

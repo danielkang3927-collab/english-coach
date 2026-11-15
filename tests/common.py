@@ -161,7 +161,8 @@ def new_page(b, t, viewport=PHONE, init=None, perms=PERMS, fake=None):
 import re, base64, urllib.parse, datetime
 
 FBCFG = {"apiKey": "AIzaFAKEWEBKEY", "projectId": "english-coach-test", "clientId": "1234-abc.apps.googleusercontent.com", "redirect": URL}
-FB_INIT = "window.__FB = %s;" % json.dumps(FBCFG)
+FB_GATE = "window.__FB = %s;" % json.dumps(FBCFG)                      # 처음 화면(로그인 권유)까지 보는 점검용
+FB_INIT = FB_GATE + 'try{localStorage.setItem("ec_gateskip","1")}catch(e){}'   # 나머지 점검은 처음 화면을 건너뛴 상태에서 시작
 CORS = {"access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS", "content-type": "application/json; charset=utf-8"}
 
 def b64u(b): return base64.urlsafe_b64encode(b).decode().rstrip("=")

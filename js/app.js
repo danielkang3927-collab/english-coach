@@ -29,10 +29,21 @@ const KIND = { talk: "대화", retell: "다시 말하기", phr: "구문", dr: "�
 
 /* ---------- 그리기 ---------- */
 const TABS = [["home", "홈"], ["train", "훈련"], ["weak", "약점"], ["phr", "구문"], ["rec", "기록"]];
+/* 처음 화면: 로그인하지 않았으면 구글 로그인부터 권한다. 「로그인 없이 시작」을 누르면 다시 묻지 않는다. */
+const gateOn = () => fbReady() && !AUTH.uid && !store.get("ec_gateskip") && !A && !REC.on;
+function drawGate() {
+  return '<div class="ec-card ec-gate"><img class="ec-gateimg" src="icons/icon-192.png?v=12" alt="" width="88" height="88"><h2>영어 말하기 코치</h2>' +
+    '<p>구글로 로그인하면 휴대폰·아이패드·노트북 어디서 열어도 같은 기록으로 이어집니다. 기록은 합치기만 하고 지우지 않습니다.</p>' +
+    btn("구글로 로그인", "login", null, "wide") + msgBox(U.smsg) +
+    '<p class="ec-sub">로그인하지 않으면 기록이 이 기기에만 남습니다. 나중에 「설정」에서 로그인할 수 있습니다.</p>' + btn("로그인 없이 시작", "gateSkip", null, "ghost small") + '</div>';
+}
 function render() {
   SAY = [];
   let h;
-  if (U.tab === "home") h = drawHome();
+  const gate = gateOn();
+  document.body.classList.toggle("ec-gated", gate);
+  if (gate) h = drawGate();
+  else if (U.tab === "home") h = drawHome();
   else if (U.tab === "train") h = A ? drawStage() : drawTrain();
   else if (U.tab === "weak") h = drawWeak();
   else if (U.tab === "phr") h = drawPhrases();
@@ -818,6 +829,7 @@ const ACT = {
   miss: a => { const w = weekNo(today()), m = DB.miss[w] || (DB.miss[w] = {}); m[a] = m[a] > 0 ? -now() : now(); dbSave("miss"); syncSoon(); render(); },
   flash: () => { U.flash = null; go("train"); },
   /* 구글 로그인 */
+  gateSkip: () => { store.set("ec_gateskip", "1"); U.smsg = null; go("home"); },
   login: () => {
     if (REC.on) return;
     daySave();

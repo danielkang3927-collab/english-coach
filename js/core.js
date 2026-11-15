@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 11;
+const BUILD = 12;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -379,6 +379,7 @@ function xiLoad() { XI.key = store.get("ec_xikey") || ""; XI.voice = store.get("
 function xiOn() { return !!(XI.key && XI.voice) && Date.now() > XI.off; }
 function xiErr(status, tx) {
   let d = ""; try { const j = JSON.parse(tx); d = (j.detail && (j.detail.status || j.detail.message)) || j.message || ""; if (typeof d !== "string") d = JSON.stringify(d); } catch (e) { d = String(tx || "").slice(0, 80); }
+  if (/api_key_id_used_as_api_key/i.test(d)) return "넣으신 것은 키가 아니라 키의 번호(ID)입니다. 키 값은 만들 때 한 번만 보입니다. ElevenLabs에서 키를 새로 만들고, 그때 화면에 뜨는 sk_ 로 시작하는 글자를 복사해 넣어 주세요.";
   if (/quota_exceeded/i.test(d)) return "ElevenLabs 이번 달 무료 크레딧을 다 썼습니다. 다음 달까지는 기기 목소리로 읽습니다.";
   if (status === 401 && /missing_permissions/i.test(d)) return "ElevenLabs 키에 권한이 부족합니다. 키를 만들 때 「Text to Speech」와 「Voices 읽기」 권한을 켜 주세요.";
   if (status === 401) return "ElevenLabs 키가 올바르지 않습니다. 다시 확인해 주세요. (" + d.slice(0, 60) + ")";
