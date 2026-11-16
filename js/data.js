@@ -216,24 +216,29 @@ const D = (function(){
     explain:["Why do you want to be a missionary? Explain your reasons.","Explain what grace means to someone who has never been to church.","What makes a good leader? Give your opinion and an example.","How can a church help its neighbors? Share your ideas."]
   };
 
+  /* 실전 미션: 앱 안에서 바로 하고, 마치면 앱이 스스로 표시한다. kind = talk(선생님 앞에서 말하기) · batch(외워 말하기) · listen(듣기 코너) · loop(이어 듣기) */
   const MISSIONS = [
-    {id:"m_meal", t:"영어로 식사 기도 하기 (이번 주 세 번)"},
-    {id:"m_comp", t:"「말씀함께」 영어판 오늘 본문을 소리 내어 읽고, 훈련의 「원고 낭독 코칭」으로 점검받기"},
-    {id:"m_call", t:"이번 주 '예배로의 부름'을 영어로 옮겨 낭독 코칭받기 (영어 원고는 Claude에게 부탁)"},
-    {id:"m_listen", t:"영어 설교나 예배 영상을 10분 듣고 한 문장 따라 말하기"},
-    {id:"m_voice", t:"아는 선교사님이나 원어민에게 30초 영어 음성 메시지 보내기"},
-    {id:"m_family", t:"가족에게 오늘 있었던 일을 영어 세 문장으로 말하기"},
-    {id:"m_self", t:"간증 1분 버전을 휴대폰으로 녹음해서 직접 들어 보기"},
-    {id:"m_verse", t:"영어 성경 한 구절을 외워서 소리 내어 말하기"},
-    {id:"m_tutor", t:"이번 달 원어민(튜터, 선교사)과 15분 대화 약속 잡기"},
-    {id:"m_bless", t:"영어 축도를 외워서 말하기"},
-    {id:"m_news", t:"영어 뉴스레터나 영어 뉴스 첫 화면에서 제목 다섯 개와 첫 문장만 소리 내어 읽기"},
-    {id:"m_mumble", t:"오늘 익힌 문장을 이동하는 길에 「듣기」로 듣고 중얼중얼 따라 말하기"}
+    {id:"m_bless", t:"영어 축도 외워서 말하기", kind:"batch", items:[
+      {en:"May the grace of the Lord Jesus Christ be with you.", ko:"주 예수 그리스도의 은혜가 여러분과 함께하기를 빕니다."},
+      {en:"May the love of God be with you.", ko:"하나님의 사랑이 여러분과 함께하기를 빕니다."},
+      {en:"May the fellowship of the Holy Spirit be with you all.", ko:"성령의 교통하심이 여러분 모두와 함께하기를 빕니다."}]},
+    {id:"m_news", t:"쉬운 영어 뉴스 한 편 듣고 질문 풀기", kind:"listen", topic:"news"},
+    {id:"m_mumble", t:"익힌 문장을 이어 듣고 중얼중얼 따라 말하기", kind:"loop"},
+    {id:"m_meal", t:"영어로 식사 기도 하기", kind:"talk", open:"We are about to eat together. Would you please pray for our meal? A short prayer is fine."},
+    {id:"m_family", t:"오늘 있었던 일을 영어 세 문장으로 말하기", kind:"talk", open:"Tell me three things that happened today. Short sentences are fine."},
+    {id:"m_faith", t:"신앙 이야기 한 편 듣고 따라 말하기", kind:"listen", topic:"faith"},
+    {id:"m_self", t:"간증을 1분 동안 영어로 말하기", kind:"talk", open:"I would love to hear your testimony. Please tell me, in about one minute, how you came to know Jesus."},
+    {id:"m_verse", t:"영어 성경 두 구절 외워서 말하기 (시편 23편 1절, 46편 10절)", kind:"batch", items:[
+      {en:"The Lord is my shepherd; I shall not want.", ko:"여호와는 나의 목자시니 내게 부족함이 없으리로다."},
+      {en:"Be still, and know that I am God.", ko:"너희는 가만히 있어 내가 하나님 됨을 알지어다."}]},
+    {id:"m_intro", t:"새 이웃에게 영어로 자기소개하기", kind:"talk", open:"Hello! I'm your new neighbor. I don't think we've met. Could you tell me a little about yourself?"},
+    {id:"m_gospel", t:"교회에 가 본 적 없는 사람에게 복음 설명하기", kind:"talk", open:"I have never been to church. Can you tell me, in simple words, why Jesus matters to you?"}
   ];
 
   const PLAN = {5:{phr:3, dr:2, talk:1, retell:0}, 15:{phr:5, dr:4, talk:2, retell:1}, 30:{phr:8, dr:6, talk:4, retell:2}, 60:{phr:10, dr:8, talk:6, retell:3}};
   /* 이번 버전에서 바뀐 것: 맨 위가 지금 판 (시험이 BUILD와 맞는지 확인한다) */
   const CHANGELOG = [
+    [36, "2026-11-16", "실전 미션을 앱 안에서 바로 하고 자동으로 표시 · 홈에 성장 예상 그래프와 토익·토플·텝스 대응 점수"],
     [35, "2026-11-16", "듣기 · 귀 뚫기의 질문을 네 개 가운데 고르는 방식으로 바꾸고 바로 채점"],
     [34, "2026-11-16", "구문 화면의 상황별 단추에 구문 수 표시"],
     [33, "2026-11-16", "선생님 답의 우리말 글자가 깨지면 다른 모델로 다시 받고, 그래도 깨진 문장은 보여 주지 않음 · 「훈련」에 듣기 · 귀 뚫기 코너: 새로 쓴 1분 이야기를 글 없이 듣기 → 받아쓰기 → 글 보며 확인 → 따라 말하기 · 이어 듣기에 듣기 이야기 묶음"],

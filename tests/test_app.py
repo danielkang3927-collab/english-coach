@@ -691,6 +691,57 @@ def s22(b):
     shot(pg, "p47_listen")
     t.check("s22 오류 없음", not real(errs), errs); ctx.close()
 
+def s23(b):
+    print("\n== s23 앱 안 실전 미션 · 성장 예상 ==")
+    ctx, pg, errs = page(b); set_key(pg)
+    ev(pg, """(function(){ window.__dev = []; const fake = { speaking: false, cancel(){ this.speaking = false; clearTimeout(this.t); }, getVoices(){ return []; }, speak(u){ window.__dev.push(u.text); this.speaking = true; clearTimeout(this.t); this.t = setTimeout(() => { this.speaking = false; }, 150); } };
+      Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: fake }); })()""")
+    t.check("s23 미션 열 개 모두 앱 안에서 할 수 있는 종류", ev(pg, "D.MISSIONS.length") == 10 and ev(pg, "D.MISSIONS.every(m => ['talk','batch','listen','loop'].indexOf(m.kind) >= 0 && (m.kind !== 'talk' || m.open) && (m.kind !== 'batch' || m.items.length >= 2) && (m.kind !== 'listen' || LIS_TOPICS[m.topic]))") and len(set(ev(pg, "D.MISSIONS.map(m => m.id)"))) == 10)
+    click(pg, "tab", "home"); w = ev(pg, "weekNo(today())")
+    t.check("s23 홈 미션 카드: 누르면 시작, 0 / 3", pg.locator('.ec-miss[data-act="missGo"]').count() == 3 and "이번 주 0 / 3 완료" in text(pg))
+    # 말하기 미션
+    ev(pg, "ACT.missGo('m_meal')"); a = ev(pg, "window.__ec.A")
+    t.check("s23 말하기 미션: 선생님이 미션 말로 시작", a and a["type"] == "talk" and a["mission"] == "m_meal" and "pray for our meal" in text(pg) and "미션 · 영어로 식사 기도 하기" in text(pg))
+    ev(pg, "(function(){ var A=window.__ec.A; A.pend=window.__fakeClip(3); talkSend(); })()"); pg.wait_for_function("window.__ec.A.turns.length === 1", timeout=15000)
+    t.check("s23 한 번 말하고 채점받으면 스스로 완료 표시, 녹음 단추 대신 마침 안내", ev(pg, "DB.miss[%d].m_meal > 0" % w) and "미션을 마쳤습니다" in text(pg) and not has(pg, "rec") and "pray for our meal" in last_text(pg))
+    click(pg, "tEnd"); click(pg, "quit", "yes")
+    ev(pg, "(function(){ window.__ec.A = null; window.__ec.go('home'); })()")
+    # 외워 말하기 미션
+    ev(pg, "ACT.missGo('m_bless')"); a = ev(pg, "window.__ec.A")
+    t.check("s23 외워 말하기 미션: 듣고 따라 세 문장 + 우리말 보고 세 문장", a["type"] == "batch" and [x["task"] for x in a["items"]] == ["shadow"] * 3 + ["recall"] * 3 and a["again"] is True and a["mission"] == "m_bless")
+    srs0 = ev(pg, "JSON.stringify(DB.srs)"); ev(pg, "window.__fillBatch()"); click(pg, "bNext"); wait_phase(pg, "done", 40000)
+    okn = ev(pg, "window.__ec.A.res.slice(3).filter(x => x.ok).length")
+    t.check("s23 채점 뒤 두 문장 이상 맞으면 완료, 아니면 다시 도전 안내 (복습 간격은 그대로)", ev(pg, "!!(DB.miss[%d].m_bless > 0)" % w) == (okn >= 2) and ("미션을 마쳤습니다" in text(pg)) == (okn >= 2) and ("아직 미션 완료가 아닙니다" in text(pg)) == (okn < 2) and ev(pg, "JSON.stringify(DB.srs)") == srs0 and "May the grace" in text(pg), okn)
+    click(pg, "tab", "rec"); t.check("s23 기록에 미션 문장이 글로 보임", True)
+    ev(pg, "(function(){ window.__ec.A = null; window.__ec.go('home'); })()")
+    # 듣기 미션
+    ev(pg, "ACT.missGo('m_news')"); wait_js(pg, "window.__ec.A && window.__ec.A.type === 'listen'", 20000)
+    t.check("s23 듣기 미션: 뉴스 주제로 새 이야기", ev(pg, "window.__ec.A.mission") == "m_news" and "news-style" in last_text(pg))
+    click(pg, "lisStep", "3"); click(pg, "lisDone")
+    t.check("s23 듣기를 마치면 완료 표시", ev(pg, "DB.miss[%d].m_news > 0" % w) and ev(pg, "window.__ec.A") is None)
+    click(pg, "lisNew"); wait_js(pg, "window.__ec.A && window.__ec.A.type === 'listen'", 20000)
+    t.check("s23 그냥 시작한 듣기는 미션이 아님", ev(pg, "window.__ec.A.mission") is None); click(pg, "quit")
+    # 이어 듣기 미션
+    ev(pg, "(function(){ window.__ec.A = null; window.__ec.go('home'); })()")
+    ev(pg, "ACT.missGo('m_mumble')"); pg.wait_for_timeout(300)
+    t.check("s23 이어 듣기 미션: 구문 화면에서 바로 재생", ev(pg, "window.__ec.U.tab") == "phr" and ev(pg, "LOOP.on") is True and ev(pg, "LOOP.forever") is False and ev(pg, "!(DB.miss[%d].m_mumble > 0)" % w))
+    wait_js(pg, "!LOOP.on", 120000)
+    t.check("s23 끝까지 들으면 완료 표시", ev(pg, "DB.miss[%d].m_mumble > 0" % w) and "미션을 마쳤습니다" in text(pg))
+    click(pg, "tab", "home")
+    t.check("s23 이번 주 미션에 있으면 홈에 ✓와 결과가 보임", pg.locator(".ec-miss.done").count() == ev(pg, "missionsOfWeek(weekNo(today())).filter(m => DB.miss[weekNo(today())][m.id] > 0).length"))
+    pg.reload(); pg.wait_for_function("window.__ec")
+    t.check("s23 다시 열어도 완료 표시가 남음", ev(pg, "DB.miss[%d].m_meal > 0 && DB.miss[%d].m_news > 0" % (w, w)) and ev(pg, "missRes()[%d].m_meal.indexOf('발음') === 0" % w))
+    # 성장 예상
+    g = ev(pg, "growthPlan(64.9, 30, 6, 24)")
+    t.check("s23 성장 예상 계산: 달마다 오르고, B1+ → B2 → B2+ 순서로 닿음", len(g["pts"]) == 25 and all(g["pts"][i]["s"] <= g["pts"][i + 1]["s"] for i in range(24)) and [k["id"] for k in g["marks"]][:3] == ["B1+", "B2", "B2+"] and 9 <= g["marks"][1]["m"] <= 12 and 80 <= g["pts"][24]["s"] <= 86 and abs(g["perMonth"] - 13.035) < 0.01, (g["marks"], g["pts"][24]))
+    t.check("s23 연습을 안 하면 그대로, 많이 하면 더 빨리", ev(pg, "growthPlan(64.9, 0, 6, 24).pts[24].s") == 64.9 and ev(pg, "growthPlan(64.9, 60, 6, 24).marks[1].m") < g["marks"][1]["m"])
+    click(pg, "tab", "home"); t.check("s23 테스트 전에는 성장 예상 카드가 없음", "앞으로의 성장 예상" not in text(pg))
+    ev(pg, "(function(){ DB.log.push({ id: 'tt1', t: now(), k: 'test', score: 64.9, lv: 'B1', parts: { pron: 69, inton: 68, flu: 53, gram: 65, vocab: 65, task: 70 }, tasks: [] }); dbSave('log'); window.__ec.render(); })()")
+    t.check("s23 홈에 성장 예상 그래프와 시험 대응 점수", "앞으로의 성장 예상" in text(pg) and pg.locator('svg[aria-label="앞으로 24개월 성장 예상"] polyline').count() >= 1 and "550~784" in text(pg) and "42~71" in text(pg) and "B1 (지금)" in text(pg) and "하루 30분 · 주 6일" in text(pg) and "가정" in text(pg))
+    shot(pg, "p48_growth")
+    t.check("s23 모든 단추에 동작이 연결됨", handlers_ok(pg) == [], handlers_ok(pg))
+    t.check("s23 오류 없음", not real(errs), errs); ctx.close()
+
 def s14(b):
     print("\n== s14 채점 중 안내 ==")
     ctx, pg, errs = page(b); set_key(pg)
@@ -1039,10 +1090,10 @@ def s5(b):
     click(pg, "start", "retell"); t.check("s5 오늘 대답이 없으면 최근 대답으로 다시 말하기", ev(pg, "window.__ec.A.queue.length") == 3); click(pg, "quit"); click(pg, "tab", "home")
     # 실전 미션
     ids = ev(pg, "Array.from(document.querySelectorAll('.ec-miss')).map(e => e.getAttribute('data-arg'))")
-    click(pg, "miss", ids[0]); w = ev(pg, "weekNo(window.__ec.today())")
+    ev(pg, "(function(){ missDone('%s', '시험'); window.__ec.render(); })()" % ids[0]); w = ev(pg, "weekNo(window.__ec.today())")
     t.check("s5 미션 표시", pg.locator(".ec-miss.done").count() == 1 and ev(pg, "!!window.__ec.DB.miss[%d]['%s']" % (w, ids[0])))
-    click(pg, "miss", ids[0]); t.check("s5 미션 표시 풀기", pg.locator(".ec-miss.done").count() == 0)
-    click(pg, "miss", ids[1])
+    t.check("s5 미션 결과 한 줄이 보임", "완료 · 시험" in text(pg) and "이번 주 1 / 3 완료" in text(pg))
+    ev(pg, "(function(){ DB.miss[weekNo(today())]['%s'] = -now(); dbSave('miss'); missDone('%s', ''); window.__ec.render(); })()" % (ids[0], ids[1]))
     ev(pg, "window.__ec.Clock.shift = 12*86400000; window.__ec.go('home')")
     ids2 = ev(pg, "Array.from(document.querySelectorAll('.ec-miss')).map(e => e.getAttribute('data-arg'))")
     t.check("s5 주가 바뀌면 다른 미션", ids2 != ids and pg.locator(".ec-miss.done").count() == 0 and len(set(ids2)) == 3, (ids, ids2))
@@ -1336,9 +1387,9 @@ def s9(b):
     click(B, "quit"); click(B, "tab", "phr"); click(B, "phCat", "my"); click(B, "phDel", pid); click(B, "phDel", pid); sync(B); sync(A)
     t.check("s9 한 기기에서 뺀 구문은 다른 기기에서도 빠짐", not ev(A, has_it) and pid in fake.state("U1001")["gone"])
     sync(B); sync(A); t.check("s9 뺀 구문이 되살아나지 않음", not ev(B, has_it) and not ev(A, has_it) and not any(p["id"] == pid for p in fake.state("U1001")["my"]))
-    click(A, "tab", "home"); mid = ev(A, "document.querySelector('.ec-miss').getAttribute('data-arg')"); click(A, "miss", mid); sync(A); sync(B); click(B, "tab", "home")
+    click(A, "tab", "home"); mid = ev(A, "document.querySelector('.ec-miss').getAttribute('data-arg')"); ev(A, "(function(){ missDone('%s', '시험'); window.__ec.render(); })()" % mid); sync(A); sync(B); click(B, "tab", "home")
     t.check("s9 미션 표시가 다른 기기로", B.locator(".ec-miss.done").count() == 1)
-    click(B, "miss", mid); sync(B); sync(A); click(A, "tab", "home")
+    ev(B, "(function(){ DB.miss[weekNo(today())]['%s'] = -(now() + 5); dbSave('miss'); syncSoon(); window.__ec.render(); })()" % mid); sync(B); sync(A); click(A, "tab", "home")
     t.check("s9 미션 표시를 푼 것도 다른 기기로", A.locator(".ec-miss.done").count() == 0)
 
     # 백업 가져오기 → 가져온 기록도 올라간다

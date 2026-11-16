@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 35;
+const BUILD = 36;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -118,6 +118,28 @@ function weekView() {
   DB.log.forEach(r => { const x = dayNo(r.t); if (x < mon || x > d) return; if (r.k === "phr" || r.k === "dr") { ok += +r.ok || 0; n += +r.n || 0; } else if (r.k === "talk") turns++; });
   return { days, min: Math.floor(sec / 60), prevMin: Math.floor(prev / 60), said, done, act, ok, n, turns, passed: d - mon + 1 };
 }
+/* 실전 미션 마침 표시 (앱이 스스로 한다). 결과 한 줄은 이 기기에만 둔다. */
+function missRes() { try { return JSON.parse(store.get("ec_missres") || "{}") || {}; } catch (e) { return {}; } }
+function missDone(id, res) {
+  const w = weekNo(today()), m = DB.miss[w] || (DB.miss[w] = {}); if (!D.MISSIONS.some(x => x.id === id)) return false;
+  m[id] = now(); dbSave("miss");
+  const r = missRes(); Object.keys(r).forEach(k => { if (+k < w - 8) delete r[k]; }); (r[w] || (r[w] = {}))[id] = String(res || "").slice(0, 80); store.set("ec_missres", JSON.stringify(r));
+  if (typeof syncSoon === "function") syncSoon(); return true;
+}
+/* 성장 예상: 한 단계에 드는 시간을 B2 아래는 200시간, B2 위는 300시간으로 잡는다(가정). 점수 1점에 드는 시간으로 바꿔 달마다 더한다. */
+const SCORE_MAP = [
+  { id: "B1", from: 60, to: 75, toeic: "550~784", toefl: "42~71", teps: "약 210~300" },
+  { id: "B2", from: 75, to: 89, toeic: "785~944", toefl: "72~94", teps: "약 300~425" }
+];
+function hoursPerPoint(score) { return score < 75 ? 200 / 15 : 300 / 14; }
+function growthPlan(score, minPerDay, daysPerWeek, months) {
+  const perMonth = minPerDay * daysPerWeek * 4.345 / 60, pts = [{ m: 0, s: score }], marks = []; let s = score;
+  const goals = LEVELS.filter(L => L.min > score);
+  for (let m = 1; m <= (months || 24); m++) { let h = perMonth; while (h > 0 && s < 96) { const step = Math.min(h, 1); s += step / hoursPerPoint(s); h -= step; }
+    goals.forEach(L => { if (s >= L.min && !marks.some(x => x.id === L.id)) marks.push({ id: L.id, m: m, min: L.min }); }); pts.push({ m: m, s: Math.round(s * 10) / 10 }); }
+  return { pts: pts, marks: marks, perMonth: perMonth };
+}
+function recentMinPerDay() { const d = today(); let s = 0; for (let i = 0; i < 7; i++) s += ((DB.day[d - i] || {}).sec || 0); return s / 60 / 7; }
 function totalSec() { let s = 0; Object.keys(DB.day).forEach(d => { s += DB.day[d].sec || 0; }); return s; }
 function stepDone(step) { const r = dayRec(), p = PLAN(); return r.st[step] >= p[step]; }
 function nextStep() { const o = ["phr", "dr", "talk", "retell"]; for (let i = 0; i < o.length; i++) if (!stepDone(o[i])) return o[i]; return null; }
@@ -244,6 +266,7 @@ function mistakesOf(tag, n) {                      /* 그 약점으로 실제 �
 
 /* ---------- 훈련 문장 고르기 ---------- */
 function itemByRef(ref) {
+  if (String(ref).indexOf("mis:") === 0) { const m = String(ref).split(":"), ms = D.MISSIONS.filter(x => x.id === m[1])[0], it = ms && ms.items && ms.items[+m[2]]; return it ? { ref: ref, ko: it.ko, en: it.en } : null; }
   const i = String(ref).indexOf(":");
   if (i < 0) { const p = allPhrases().filter(x => x.id === ref)[0]; return p ? { ref, ko: p.ko, en: p.en } : null; }
   const key = ref.slice(0, i), idx = parseInt(ref.slice(i + 1), 10);
@@ -598,7 +621,7 @@ function loopStart(list, opt) {
   try { if (navigator.mediaSession) { navigator.mediaSession.setActionHandler("pause", loopStop); navigator.mediaSession.setActionHandler("stop", loopStop); } } catch (e) {}
   const step = () => {
     if (id !== LOOP.id || !LOOP.on) return;
-    if (LOOP.i >= LOOP.list.length) { if (!LOOP.forever) { loopStop(); return; } LOOP.i = 0; }
+    if (LOOP.i >= LOOP.list.length) { if (LOOP.onPass) try { LOOP.onPass(LOOP.list.length); } catch (e) {} if (!LOOP.forever) { loopStop(); return; } LOOP.i = 0; }
     const it = LOOP.list[LOOP.i]; loopPaint();
     try { if (navigator.mediaSession && window.MediaMetadata) { navigator.mediaSession.metadata = new MediaMetadata({ title: it.en, artist: "이어 듣기 " + (LOOP.i + 1) + " / " + LOOP.list.length, album: "영어 말하기 코치" }); navigator.mediaSession.playbackState = "playing"; } } catch (e) {}
     speakWait(it.en, it.role).then(ms => {
