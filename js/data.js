@@ -233,5 +233,14 @@ const D = (function(){
   ];
 
   const PLAN = {5:{phr:3, dr:2, talk:1, retell:0}, 15:{phr:5, dr:4, talk:2, retell:1}, 30:{phr:8, dr:6, talk:4, retell:2}, 60:{phr:10, dr:8, talk:6, retell:3}};
-  return {TAGS, TAG_IDS, ORDER, CATS, PHRASES, SCENES, TEST, MISSIONS, PLAN};
+  /* 이번 버전에서 바뀐 것: 맨 위가 지금 판 (시험이 BUILD와 맞는지 확인한다) */
+  const CHANGELOG = [
+    [27, "2026-11-16", "이어 듣기(멈출 때까지 되풀이·따라 말할 틈·빠르기) · 배지 · 최근 12주 출석 · 함께 보기를 기록 화면으로 옮기고 구글 계정 이름으로 표시"],
+    [26, "2026-11-16", "함께 보기: 서로의 이번 주 학습 현황 (설정에서 끌 수 있음)"],
+    [25, "2026-11-16", "대화는 정한 횟수에서 끝 · 홈 「나의 학습 현황」 · 마이크 허용 안내"],
+    [24, "2026-11-16", "모범답안 문장별 듣기·모음 · 지난 문장 복습 3문제 · 오늘 하루 세 문장 · 마주친 표현 물어보기"],
+    [23, "2026-11-16", "5분 과정 · 누적 암송(오늘 + 어제)"],
+    [22, "2026-11-16", "채점을 세 개씩 나눠 보내 멈춤 방지 · 새 버전 자동 반영"]
+  ];
+  return {TAGS, TAG_IDS, ORDER, CATS, PHRASES, SCENES, TEST, MISSIONS, PLAN, CHANGELOG};
 })();

@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 26;
+const BUILD = 27;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -534,7 +534,7 @@ function ttsBusy(on) {
 }
 function ttsOff(k, ms) { const u = Date.now() + ms; if (k === "x") XI.off = u; else GT.off = u; store.set(k === "x" ? "ec_xioff" : "ec_gtoff", String(u)); }
 function speak(text, role) {
-  if (!XI.key) return speakDevice(text);
+  if (!XI.key) { XI.seq++; return speakDevice(text); }   /* 차례 번호를 올려야 이어 듣기가 다른 「듣기」를 알아챈다 */
   ttsPrime();
   const t = ttsNorm(text);
   try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
@@ -545,6 +545,59 @@ function speak(text, role) {
   first.then(ok => { if (my === XI.seq) ttsBusy(false); if (!ok && my === XI.seq) speakDevice(text); });
   return true;
 }
+/* ---------- 이어 듣기: 문장 목록을 차례로 읽고, 따라 말할 틈을 두고, 멈출 때까지 되풀이 ---------- */
+const LOOP = { on: false, list: [], i: 0, id: 0, rate: 1, echo: true, forever: true, onPaint: null };
+function loopPaint() { if (LOOP.onPaint) try { LOOP.onPaint(); } catch (e) {} }
+function speakWait(text, role) {                     /* 한 문장을 읽고 끝나면 걸린 시간(ms)을 준다. 다른 소리가 끼어들면 -1 */
+  return new Promise(res => {
+    if (!speak(text, role)) { res(-1); return; }
+    const my = XI.seq, t0 = Date.now(); let started = 0;
+    const iv = setInterval(() => {
+      if (XI.seq !== my) { clearInterval(iv); res(-1); return; }
+      const a = XI.audio, ap = !!(a && !a.paused && !a.ended && a.currentTime > 0), sp = !!(window.speechSynthesis && window.speechSynthesis.speaking), now = Date.now();
+      if (ap && a.playbackRate !== LOOP.rate && LOOP.on) { try { a.playbackRate = LOOP.rate; } catch (e) {} }
+      if (!started) { if (ap || sp) started = now; else if (now - t0 > 25000) { clearInterval(iv); res(0); } return; }
+      if (!ap && !sp && now - started > 250) { clearInterval(iv); res(now - started); }
+    }, 120);
+  });
+}
+function loopStop() { if (!LOOP.on) return; LOOP.on = false; LOOP.id++; try { if (XI.audio) { XI.audio.defaultPlaybackRate = 1; XI.audio.playbackRate = 1; } } catch (e) {} try { if (navigator.mediaSession) navigator.mediaSession.playbackState = "none"; } catch (e) {} loopPaint(); }
+function loopStart(list, opt) {
+  loopStop(); list = (list || []).filter(x => x && x.en); if (!list.length) return false;
+  opt = opt || {}; LOOP.list = list; LOOP.i = 0; LOOP.rate = +opt.rate || 1; LOOP.echo = opt.echo !== false; LOOP.forever = opt.forever !== false; LOOP.on = true;
+  const id = ++LOOP.id, wait = ms => new Promise(r => setTimeout(r, ms));
+  ttsPrime(); try { if (XI.audio) XI.audio.defaultPlaybackRate = LOOP.rate; } catch (e) {}
+  try { if (navigator.mediaSession) { navigator.mediaSession.setActionHandler("pause", loopStop); navigator.mediaSession.setActionHandler("stop", loopStop); } } catch (e) {}
+  const step = () => {
+    if (id !== LOOP.id || !LOOP.on) return;
+    if (LOOP.i >= LOOP.list.length) { if (!LOOP.forever) { loopStop(); return; } LOOP.i = 0; }
+    const it = LOOP.list[LOOP.i]; loopPaint();
+    try { if (navigator.mediaSession && window.MediaMetadata) { navigator.mediaSession.metadata = new MediaMetadata({ title: it.en, artist: "이어 듣기 " + (LOOP.i + 1) + " / " + LOOP.list.length, album: "영어 말하기 코치" }); navigator.mediaSession.playbackState = "playing"; } } catch (e) {}
+    speakWait(it.en, it.role).then(ms => {
+      if (id !== LOOP.id || !LOOP.on) return;
+      if (ms < 0) { loopStop(); return; }               /* 다른 「듣기」를 눌렀거나 녹음을 시작했으면 멈춘다 */
+      const seq0 = XI.seq;
+      return wait(LOOP.echo ? Math.min(12000, Math.max(1200, ms * 1.15 + 500)) : 600).then(() => { if (id !== LOOP.id || !LOOP.on) return; if (XI.seq !== seq0) { loopStop(); return; } LOOP.i++; step(); });
+    });
+  };
+  step(); return true;
+}
+/* ---------- 배지·출석: 저장하지 않고 기록에서 계산한다 ---------- */
+function bestStreak() { const ds = Object.keys(DB.day).map(Number).filter(dayActive).sort((a, b) => a - b); let best = 0, run = 0, prev = null; ds.forEach(d => { run = prev != null && d === prev + 1 ? run + 1 : 1; if (run > best) best = run; prev = d; }); return best; }
+function badgeList() {
+  const bs = Math.max(bestStreak(), streak()), act = Object.keys(DB.day).filter(d => dayActive(+d)).length, rd = Object.keys(DB.day).filter(d => dayDone(+d)).length;
+  const known = allPhrases().filter(p => phraseState(p.id) === "known").length, hrs = totalSec() / 3600, nt = DB.log.filter(r => r.k === "talk").length, nr = DB.log.filter(r => r.k === "retell").length;
+  const fx = fixList().filter(p => DB.srs[p.id] && DB.srs[p.id].n > 0).length, ts = DB.log.filter(r => r.k === "test" && r.score != null).length;
+  const B = (id, n, d, now, goal) => ({ id: id, n: n, d: d, ok: now >= goal, now: Math.min(now, goal), goal: goal });
+  return [
+    B("first", "첫걸음", "처음으로 연습한 날", act, 1), B("s3", "3일 연속", "사흘 이어서 연습", bs, 3), B("s7", "7일 연속", "일주일 이어서 연습", bs, 7), B("s30", "30일 연속", "한 달 이어서 연습", bs, 30),
+    B("r1", "루틴 첫 완료", "하루 루틴을 모두 마침", rd, 1), B("r10", "루틴 10일", "루틴을 마친 날 10일", rd, 10), B("r50", "루틴 50일", "루틴을 마친 날 50일", rd, 50),
+    B("k10", "구문 10개 익힘", "네 번 이어 맞힌 구문 10개", known, 10), B("k50", "구문 50개 익힘", "네 번 이어 맞힌 구문 50개", known, 50),
+    B("t20", "대화 20번", "선생님과 대답 20번", nt, 20), B("t100", "대화 100번", "선생님과 대답 100번", nt, 100), B("re10", "다시 말하기 10번", "고친 표현으로 다시 말함", nr, 10),
+    B("f10", "틀린 문장 10개 다시", "틀렸던 문장 10개를 다시 말함", fx, 10), B("h10", "10시간", "누적 연습 10시간", Math.floor(hrs), 10), B("h50", "50시간", "누적 연습 50시간", Math.floor(hrs), 50), B("lv", "첫 레벨 테스트", "지금 수준을 재어 봄", ts, 1)
+  ];
+}
+function attendance(weeks) { const d = today(), mon = weekNo(d) * 7 + 4, start = mon - 7 * ((weeks || 12) - 1), out = []; for (let x = start; x < mon + 7; x++) out.push({ d: x, v: x > d ? -1 : dayDone(x) ? 2 : dayActive(x) ? 1 : 0, today: x === d }); return out; }
 function speakStop() { XI.seq++; ttsBusy(false); try { if (XI.audio) XI.audio.pause(); } catch (e) {} try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {} }
 
 /* ---------- Gemini 연결: 좋은 모델부터, 막히면 다음 모델로 ---------- */

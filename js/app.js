@@ -1,7 +1,7 @@
 "use strict";
 /* 영어 말하기 코치 — 화면과 훈련 흐름. 기준은 SPEC.md. */
 const U = { tab: "home", scene: 0, f: { script: "", phEn: "", phKo: "", askEn: "", bk: "", gkey: "" }, remember: true, tagSel: null, ordSel: null, showZero: false,
-  phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0, flash: null, smsg: null, diag: null, back: null, ask: null, mic: "", nickMsg: null, shortMsg: null, natOpen: false, natN: 5, natMsg: null, natBusy: null };
+  phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0, flash: null, smsg: null, diag: null, back: null, ask: null, mic: "", nickMsg: null, loopSrc: "cum", loopRate: +store.get("ec_looprate") || 1, loopEcho: true, loopForever: true, loopMsg: null, shortMsg: null, natOpen: false, natN: 5, natMsg: null, natBusy: null };
 let A = null;                                     /* 진행 중인 훈련 */
 let SAY = [], KEEP = [];                                     /* 「듣기」 버튼이 읽을 글 */
 const REC = { on: false, busy: false, t0: 0, timer: null, max: 0, done: null };
@@ -112,8 +112,7 @@ function boardHtml() {
   let h = '<p><b>' + (act.length ? "이번 주 " + act.length + "명이 함께 연습하고 있습니다." : "이번 주에는 아직 시작한 사람이 없습니다. 첫 사람이 되어 보세요.") + '</b></p>';
   h += act.map(x => '<div class="ec-bd' + (x.id === me ? " me" : "") + '"><span>' + (x.d === d && x.td === 2 ? "✓ " : x.d === d && x.td === 1 ? "· " : "") + esc(x.n || "이름 없음") + (x.id === me ? " (나)" : "") + '</span><small>루틴 ' + x.dn + '일 · ' + hm(x.mn * 60) + (x.st >= 2 ? ' · 연속 ' + x.st + '일' : "") + '</small></div>').join("");
   if (rest > 0) h += '<p class="ec-sub">이번 주 시작 전: ' + rest + '명</p>';
-  if (!DB.set.nick) h += '<div class="ec-row">' + btn("함께 보기에 보일 이름 정하기", "tab", "set", "small") + '</div>';
-  h += '<p class="ec-sub">이름 앞의 ✓는 오늘 루틴을 마친 사람, ·는 오늘 연습한 사람입니다. 서로에게는 이름(별명)과 이번 주 루틴 일수·연습 시간·연속 일수만 보입니다. 점수·녹음·문장은 보이지 않습니다.' + (BOARD.err ? ' <span class="s-bad">지금은 불러오지 못했습니다.</span>' : "") + '</p>';
+  h += '<p class="ec-sub">이름 앞의 ✓는 오늘 루틴을 마친 사람, ·는 오늘 연습한 사람입니다. 서로에게는 이름과 이번 주 루틴 일수·연습 시간·연속 일수만 보입니다. 점수·녹음·문장은 보이지 않습니다.' + (BOARD.err ? ' <span class="s-bad">지금은 불러오지 못했습니다.</span>' : "") + '</p>';
   return h;
 }
 function weekHtml() {
@@ -138,7 +137,6 @@ function drawHome() {
   if (fbReady() && SYNC.ask) h += card("계정 확인이 필요합니다", '<p>이 기기의 기록을 지금 로그인한 계정에 합칠지 정해 주세요.</p>' + btn("설정에서 정하기", "tab", "set"));
   else if (fbReady() && !AUTH.uid) h += card("기기를 바꿔도 기록이 이어지게", '<p class="ec-sub">구글로 로그인하면 휴대폰·아이패드·노트북에서 같은 기록을 씁니다. 기록은 합치기만 하고 지우지 않습니다.</p>' + btn("구글로 로그인", "login"));
   h += card("나의 학습 현황", weekHtml());
-  if (fbReady() && AUTH.uid) h += card("함께 하는 사람들", boardHtml());
   /* 등급과 목표 */
   let lv = "";
   if (last) {
@@ -209,6 +207,30 @@ function natCard() {
   }
   return h + msgBox(U.natMsg);
 }
+/* 이어 듣기: 고른 문장 묶음을 차례로 읽어 준다 */
+const LOOP_SRC = { cum: "오늘·어제 익힌 문장", fix: "틀렸던 문장", nat: "선생님 모범답안 (최근 대화 5번)", my: "내 구문 전체", learn: "연습 중인 구문" };
+function loopItems(src) {
+  if (src === "fix") return fixList().map(p => ({ en: p.en }));
+  if (src === "nat") { const o = []; natList().slice(0, 5).forEach(r => natSents(r.nat, r.ns).forEach(x => o.push({ en: x.en, role: "teacher" }))); return o; }
+  if (src === "my") return DB.my.map(p => ({ en: p.en }));
+  if (src === "learn") return allPhrases().filter(p => phraseState(p.id) === "learning").slice(0, 40).map(p => ({ en: p.en }));
+  return pickCumul(40).map(x => ({ en: x.en }));
+}
+function loopStatus() { if (!LOOP.on) return ""; const it = LOOP.list[LOOP.i] || LOOP.list[0]; return "읽는 중 " + (Math.min(LOOP.i, LOOP.list.length - 1) + 1) + " / " + LOOP.list.length + " — " + (it ? it.en : ""); }
+function loopCard() {
+  const n = loopItems(U.loopSrc).length, sel = (id, chg, cur, opts) => '<select id="' + id + '" data-chg="' + chg + '">' + opts.map(o => '<option value="' + o[0] + '"' + (String(o[0]) === String(cur) ? " selected" : "") + '>' + esc(o[1]) + '</option>').join("") + '</select>';
+  return '<p class="ec-sub">고른 문장을 차례로 읽어 줍니다. 문장마다 읽은 길이만큼 틈을 두니 그 사이에 소리 내어 따라 말하세요. 이동 중에 듣고 중얼거리기에 좋습니다. 한 번 받은 소리는 기기에 남아 다시 들을 때 크레딧이 들지 않습니다.</p>' +
+    '<label for="ecLoopSrc">들을 문장</label>' + sel("ecLoopSrc", "loopSrc", U.loopSrc, Object.keys(LOOP_SRC).map(k => [k, LOOP_SRC[k]])) +
+    '<label for="ecLoopRate">빠르기</label>' + sel("ecLoopRate", "loopRate", U.loopRate, [[0.7, "느리게"], [0.85, "조금 느리게"], [1, "보통"], [1.15, "조금 빠르게"], [1.5, "1.5배속"]]) +
+    '<label class="ec-check"><input type="checkbox" id="ecLoopEcho" data-chg="loopEcho"' + (U.loopEcho ? " checked" : "") + '> 문장마다 따라 말할 틈 두기</label>' +
+    '<label class="ec-check"><input type="checkbox" id="ecLoopForever" data-chg="loopForever"' + (U.loopForever ? " checked" : "") + '> 멈춤을 누를 때까지 되풀이</label>' +
+    '<div class="ec-row">' + (LOOP.on ? btn("■ 멈춤", "loopStop") : btn(n ? "▶ 이어 듣기 시작 (" + n + "문장)" : "들을 문장이 아직 없습니다", "loopGo", null, n ? "" : "ghost")) + '</div>' +
+    '<div id="ecLoopSt" class="' + (LOOP.on ? "ec-msg" : "") + '">' + esc(loopStatus()) + '</div>' + msgBox(U.loopMsg);
+}
+function badgeHtml() { const B = badgeList(), got = B.filter(b => b.ok).length;
+  return '<p class="ec-sub">' + B.length + '개 가운데 ' + got + '개를 받았습니다. 기록에서 바로 계산하므로 기기를 바꿔도 그대로입니다.</p><div class="ec-bgs">' + B.map(b => '<div class="ec-bg' + (b.ok ? " on" : "") + '"><b>' + (b.ok ? "★ " : "") + esc(b.n) + '</b><small>' + esc(b.d) + (b.ok ? "" : " · " + b.now + " / " + b.goal) + '</small></div>').join("") + '</div>'; }
+function attendHtml() { const A0 = attendance(12), done = A0.filter(x => x.v === 2).length, act = A0.filter(x => x.v >= 1).length;
+  return '<div class="ec-att">' + ["월", "화", "수", "목", "금", "토", "일"].map(n => '<span>' + n + '</span>').join("") + A0.map(x => '<i class="' + (x.v === 2 ? "full" : x.v === 1 ? "part" : x.v < 0 ? "later" : "") + (x.today ? " now" : "") + '"></i>').join("") + '</div><p class="ec-sub">진한 칸은 루틴을 모두 마친 날(' + done + '일), 연한 칸은 일부만 한 날입니다. 12주 동안 연습한 날 ' + act + '일.</p>'; }
 function askHtml() {
   const a = U.ask; if (!a) return "";
   if (a.busy) return '<div class="ec-msg">선생님에게 물어보는 중입니다…</div>';
@@ -244,7 +266,7 @@ function recBtn(label) {
 }
 function recStart(max, done) {
   if (REC.on || REC.busy) return;
-  REC.busy = true; setMsg(""); speakStop();
+  REC.busy = true; setMsg(""); loopStop(); speakStop();
   capStart(() => {
     REC.busy = false; REC.on = true; REC.t0 = Date.now(); REC.max = max; REC.done = done;
     REC.timer = setInterval(() => { const s = (Date.now() - REC.t0) / 1000, el = $("ecRecT"); if (el) el.textContent = fmtSec(s); if (s >= REC.max) recStop(); }, 250);
@@ -676,6 +698,7 @@ function drawPhrases() {
     btn(cu.length ? "누적 암송 시작 (" + cu.length + "문장)" : "오늘·어제 익힌 문장이 아직 없습니다", "cumGo", null, cu.length ? "" : "ghost"));
   h += card("틀렸던 문장 다시 말하기", '<p class="ec-sub">대화·다시 말하기·레벨 테스트에서 선생님이 고쳐 준 문장은 자동으로 내 구문에 담깁니다. 처음에는 듣고 따라 말하고, 다음부터는 틀렸던 말을 보고 바른 문장으로 말합니다. 입에 붙을 때까지 1·3·7·14·30·60일 간격으로 다시 나옵니다.</p>' +
     '<div class="ec-row">' + btn(fx.length ? "틀렸던 문장 훈련 (" + fx.length + "개 중 " + Math.min(8, fx.length) + "개)" : "아직 고친 문장이 없습니다", "fixGo", null, fx.length ? "" : "ghost") + btn("지난 기록에서 모으기", "fixScan", null, "ghost small") + '</div>' + msgBox(U.fixMsg));
+  h += card("이어 듣기 · 따라 말하기", loopCard());
   h += card("선생님 모범답안 모음", natCard());
   h += card("마주친 표현 물어보기", '<p class="ec-sub">오늘 듣거나 읽은 영어 표현을 넣으면 뜻, 내가 쓸 수 있는 상황, 예문을 알려 줍니다. 마음에 들면 내 구문에 담아 입으로 익히세요.</p>' +
     '<label for="ecAskEn">영어 표현</label><input type="text" id="ecAskEn" data-bind="askEn" value="' + esc(U.f.askEn) + '" placeholder="예: I\'m swamped.">' +
@@ -736,6 +759,9 @@ function recDetail(r) {
 function drawRecords() {
   const ts = tests(), days = Object.keys(DB.day).filter(d => DB.day[d].sec >= 60).length, said = Object.keys(DB.day).reduce((s, d) => s + (DB.day[d].said || 0), 0);
   let h = card("쌓인 것", '<div class="ec-scores">' + statCell("누적 시간", hm(totalSec())) + statCell("연습한 날", days + "일") + statCell("말한 문장", said + "개") + statCell("연속", streak() + "일") + '</div>');
+  if (fbReady() && AUTH.uid) h += card("함께 하는 사람들", boardHtml());
+  h += card("최근 12주 출석", attendHtml());
+  h += card("배지", badgeHtml());
   h += card("참고 등급 변화", ts.length ? levelChart(ts) + '<p class="ec-sub">테스트 ' + ts.length + '번. 점선은 등급 경계입니다.</p>' : '<div class="ec-msg">레벨 테스트를 하면 여기에 변화가 그려집니다.</div>' + btn("레벨 테스트 시작", "start", "test", "ghost"));
   h += card("최근 14일 연습 시간", minutesChart() + '<p class="ec-sub">가로선이 하루 목표 ' + DB.set.minutes + '분입니다.</p>');
   const log = DB.log.slice().reverse(), show = log.slice(0, U.logN);
@@ -824,10 +850,11 @@ function drawSettings() {
   if (order.length) g += '<label for="ecGModelPick">먼저 쓸 모델</label><select id="ecGModelPick" data-chg="gmodel"><option value=""' + (G.model ? "" : " selected") + '>자동 (가장 좋은 모델부터)</option>' + G.chain.map(n => '<option value="' + esc(n) + '"' + (n === G.model ? " selected" : "") + '>' + esc(n) + '</option>').join("") + '</select>' +
     '<div class="ec-sub ec-gap">쓰는 순서 (막히면 자동으로 다음 모델)</div><ol class="ec-ol">' + order.map(n => '<li>' + esc(n) + ' <span class="ec-sub">— ' + gStateOf(n) + '</span></li>').join("") + '</ol><div class="ec-row">' + btn("한도 기록 지우고 다시 시도", "gReset", null, "ghost small") + '</div>';
   let h = card("선생님 연결 (Gemini)", g);
-  if (fbReady()) h += card("함께 보기", '<p class="ec-sub">이 앱을 쓰는 사람들끼리 이번 주 학습 현황을 서로 봅니다. 보이는 것은 아래 이름과 이번 주 루틴 일수·연습 시간·연속 일수뿐입니다. 로그인한 사람은 누구나 볼 수 있으니 이름은 별명으로 적어 주세요.</p>' +
+  if (fbReady()) h += card("함께 보기", '<p class="ec-sub">이 앱을 쓰는 사람들끼리 이번 주 학습 현황을 서로 봅니다. 보이는 것은 아래 이름과 이번 주 루틴 일수·연습 시간·연속 일수뿐입니다. 이름은 구글 계정 이름으로 보이고, 아래 칸에 적으면 그 이름으로 바뀝니다. 로그인한 사람은 누구나 볼 수 있습니다.</p>' +
     '<label class="ec-check"><input type="checkbox" id="ecShare" data-chg="share"' + (boardOn() ? " checked" : "") + '> 내 학습 현황을 함께 보기에 공유하기</label>' +
-    '<label for="ecNick">함께 보기에 보일 이름 (20자까지)</label><input type="text" id="ecNick" data-bind="nick" maxlength="20" value="' + esc(U.f.nick != null ? U.f.nick : (DB.set.nick || "")) + '" placeholder="예: 요셉">' +
+    '<p class="ec-sub">지금 보이는 이름: <b>' + esc(boardName() || "이름 없음") + '</b></p><label for="ecNick">다른 이름으로 보이게 (비우면 구글 계정 이름)</label><input type="text" id="ecNick" data-bind="nick" maxlength="20" value="' + esc(U.f.nick != null ? U.f.nick : (DB.set.nick || "")) + '" placeholder="예: 요셉">' +
     '<div class="ec-row">' + btn("이름 저장", "nickSave") + '</div>' + msgBox(U.nickMsg) + (AUTH.uid ? "" : '<p class="ec-sub">구글로 로그인해야 함께 보기가 켜집니다.</p>'));
+  h += card("이번 버전에서 바뀐 것", '<p class="ec-sub">지금 ' + BUILD + '판입니다. 새 판이 나오면 앱을 쓰지 않는 틈에 자동으로 바뀝니다.</p>' + D.CHANGELOG.slice(0, 6).map(c => '<p class="ec-sub"><b>v' + c[0] + '</b> ' + esc(c[1].slice(5).replace("-", "/")) + ' — ' + esc(c[2]) + '</p>').join(""));
   h += card("마이크를 매번 묻지 않게", '<p class="ec-sub">마이크 허용을 기억하는 것은 앱이 아니라 기기의 브라우저입니다. 아래처럼 한 번 「허용」으로 바꿔 두면 이 기기에서는 다시 묻지 않습니다.</p>' +
     '<p><b>이 기기의 지금 상태:</b> ' + (U.mic === "granted" ? '<span class="s-good">항상 허용됨</span>' : U.mic === "denied" ? '<span class="s-bad">막혀 있음</span>' : U.mic === "prompt" ? "켤 때마다 물어봄" : "알 수 없음 (이 브라우저는 알려 주지 않습니다)") + '</p>' +
     '<p class="ec-sub"><b>아이폰·아이패드 (Safari)</b><br>① 이 앱을 Safari로 연 채 주소창의 「가가」 또는 「⋯」 단추 → 「웹사이트 설정」 → 마이크 → 「허용」<br>② 또는 설정 앱 → 앱 → Safari → 마이크 → 「허용」 (모든 사이트에 적용)</p>' +
@@ -921,7 +948,10 @@ const ACT = {
       show({ text: ok ? "뜻을 받아 내 구문에 담았습니다: " + ko : "이미 내 구문에 있습니다." });
     }, why => show({ text: why || "뜻을 받지 못했습니다. 잠시 뒤에 다시 눌러 주세요.", err: true })); },
   nickSave: () => { const n = String(U.f.nick != null ? U.f.nick : (DB.set.nick || "")).replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 20);
-    DB.set.nick = n; dbSave("set"); U.f.nick = null; U.nickMsg = { text: n ? "「" + n + "」(으)로 저장했습니다." + (boardOn() ? "" : " 지금은 공유가 꺼져 있습니다.") : "이름을 비웠습니다. 「이름 없음」으로 보입니다." }; syncSoon(300); render(); },
+    DB.set.nick = n; dbSave("set"); U.f.nick = null; U.nickMsg = { text: n ? "「" + n + "」(으)로 저장했습니다." + (boardOn() ? "" : " 지금은 공유가 꺼져 있습니다.") : "이름을 비웠습니다. 구글 계정 이름으로 보입니다." }; syncSoon(300); render(); },
+  loopGo: () => { if (REC.on) return; const it = loopItems(U.loopSrc); if (!it.length) { U.loopMsg = { text: "이 묶음에는 아직 문장이 없습니다. 다른 묶음을 골라 주세요." }; render(); return; }
+    U.loopMsg = null; loopStart(it, { rate: U.loopRate, echo: U.loopEcho, forever: U.loopForever }); render(); },
+  loopStop: () => { loopStop(); speakStop(); render(); },
   yestGo: () => { if (REC.on) return; const it = pickYest(3); if (!it.length) { U.shortMsg = { text: "구문을 한 번 익히면 다음 날부터 여기에 복습 문제가 나옵니다." }; render(); return; }
     if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
     A = null; U.tagSel = null; U.ordSel = null; U.shortMsg = null; startBatch("phr", it, "지난 문장 복습", null); if (A) A.again = true; },
@@ -1005,6 +1035,10 @@ const ACT = {
 };
 const CHG = {
   share: el => { DB.set.share = !!el.checked; dbSave("set"); U.nickMsg = { text: el.checked ? "공유를 켰습니다." : "공유를 껐습니다. 올려 둔 내 현황을 비웁니다." }; syncSoon(300); render(); },
+  loopSrc: el => { U.loopSrc = el.value; U.loopMsg = null; if (LOOP.on) { loopStop(); speakStop(); } render(); },
+  loopRate: el => { U.loopRate = +el.value || 1; store.set("ec_looprate", String(U.loopRate)); if (LOOP.on) { LOOP.rate = U.loopRate; try { if (XI.audio) XI.audio.defaultPlaybackRate = LOOP.rate; } catch (e) {} } },
+  loopEcho: el => { U.loopEcho = !!el.checked; if (LOOP.on) LOOP.echo = U.loopEcho; },
+  loopForever: el => { U.loopForever = !!el.checked; if (LOOP.on) LOOP.forever = U.loopForever; },
   scene: el => { U.scene = +el.value || 0; render(); },
   remember: el => { U.remember = el.checked; },
   xiVoice: el => { xiSetVoice(el.value); keyTouch("x"); XI.off = 0; U.xiMsg = null; render(); speak("Hello. I am your English coach.", "teacher"); },
@@ -1086,3 +1120,5 @@ function micWatch() {
   } catch (e) {}
 }
 micWatch();
+/* 이어 듣기 진행 표시: 화면 전체를 다시 그리지 않고 한 줄만 바꾼다. 끝나면 단추를 되돌린다. */
+LOOP.onPaint = () => { const el = $("ecLoopSt"); if (LOOP.on) { if (el) { el.className = "ec-msg"; el.textContent = loopStatus(); } } else if (U.tab === "phr" && !REC.on) { const y = window.scrollY; render(); window.scrollTo(0, y); } };

@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="ec-build" content="26">
+<meta name="ec-build" content="27">
 <title>영어 말하기 코치</title>
-<link rel="icon" type="image/png" href="icons/icon-192.png?v=26">
-<link rel="apple-touch-icon" href="icons/icon-180.png?v=26">
-<link rel="manifest" href="manifest.json?v=26">
+<link rel="icon" type="image/png" href="icons/icon-192.png?v=27">
+<link rel="apple-touch-icon" href="icons/icon-180.png?v=27">
+<link rel="manifest" href="manifest.json?v=27">
 <meta name="apple-mobile-web-app-title" content="영어 코치">
 <style>
 :root{
@@ -126,6 +126,12 @@ label{display:block;font-size:14px;color:var(--sub);margin:10px 0 4px}
 .ec-wd.now{border-width:2px;border-color:var(--brand)} .ec-wd.later{opacity:.45}
 .ec-bd{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:8px 2px;border-bottom:1px solid var(--line);font-size:15px}
 .ec-bd small{color:var(--sub);font-size:13px;white-space:nowrap} .ec-bd.me span{font-weight:700;color:var(--brand)}
+.ec-bgs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.ec-bg{display:flex;flex-direction:column;gap:2px;padding:9px 10px;border:1px dashed var(--line);border-radius:10px;font-size:14px;color:var(--sub)}
+.ec-bg small{font-size:12px} .ec-bg.on{border-style:solid;border-color:var(--good);background:var(--chip);color:var(--ink)} .ec-bg.on b{color:var(--good)}
+.ec-att{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin:6px 0}
+.ec-att span{font-size:11px;color:var(--sub);text-align:center} .ec-att i{height:16px;border-radius:4px;border:1px solid var(--line)}
+.ec-att i.part{background:var(--chip);border-color:var(--good)} .ec-att i.full{background:var(--good);border-color:var(--good)} .ec-att i.later{opacity:.35} .ec-att i.now{outline:2px solid var(--brand);outline-offset:1px}
 .ec-msg.ec-cheer{margin-top:0;font-weight:600}
 .ec-step.done{border-color:var(--good)} .ec-step.done b{color:var(--good)}
 .ec-miss{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;padding:10px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink);font:inherit;font-size:15px;margin-top:8px}
@@ -178,9 +184,9 @@ table.ec-t th{color:var(--sub);font-weight:400;font-size:13px}
   <button data-act="bottom" aria-label="맨 아래로">▼</button>
 </div>
 <nav class="ec-nav" id="ecNav" aria-label="화면 이동"></nav>
-<script src="js/data.js?v=26"></script>
-<script src="js/core.js?v=26"></script>
-<script src="js/sync.js?v=26"></script>
-<script src="js/app.js?v=26"></script>
+<script src="js/data.js?v=27"></script>
+<script src="js/core.js?v=27"></script>
+<script src="js/sync.js?v=27"></script>
+<script src="js/app.js?v=27"></script>
 </body>
 </html>

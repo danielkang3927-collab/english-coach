@@ -270,7 +270,8 @@ function syncShared() {
 const BOARD = { list: [], at: 0, err: "" };
 try { const b = JSON.parse(store.get("ec_boardlist") || "[]"); if (Array.isArray(b)) BOARD.list = b; } catch (e) {}
 const boardOn = () => DB.set.share !== false;
-function boardMine() { const W = weekView(), d = today(); return { n: String(DB.set.nick || "").slice(0, 20), w: weekNo(d), dn: W.done, mn: W.min, st: streak(), td: dayDone(d) ? 2 : (W.days.some(x => x.today && x.min > 0) ? 1 : 0), d: d }; }
+const boardName = () => String(DB.set.nick || AUTH.name || "").slice(0, 20);      /* 따로 적은 이름이 없으면 구글 계정 이름 */
+function boardMine() { const W = weekView(), d = today(); return { n: boardName(), w: weekNo(d), dn: W.done, mn: W.min, st: streak(), td: dayDone(d) ? 2 : (W.days.some(x => x.today && x.min > 0) ? 1 : 0), d: d }; }
 function boardClean(o, id) { const num = v => Math.max(0, Math.min(100000, Math.round(+v || 0))); return { id: id, n: String(o.n || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 20), w: num(o.w), dn: Math.min(7, num(o.dn)), mn: num(o.mn), st: num(o.st), td: num(o.td), d: num(o.d) }; }
 function syncBoard() {
   const uid = AUTH.uid, path = "board/" + uid, flag = "ec_board_" + uid;
@@ -285,7 +286,6 @@ function syncBoard() {
     const docs = (r.j && r.j.documents) || [], list = [];
     docs.forEach(d => { const o = jparse(d.fields && d.fields.j && d.fields.j.stringValue); if (o && !o.off) list.push(boardClean(o, String(d.name).split("/").pop())); });
     const old = list.filter(x => x.id === uid)[0];
-    if (!DB.set.nick && old && old.n) { DB.set.nick = old.n; dbSave("set"); }      /* 새 기기: 전에 정한 이름을 가져온다 */
     const me = boardMine(), js = JSON.stringify(me);
     const fin = () => { BOARD.list = list.filter(x => x.id !== uid).concat([boardClean(me, uid)]); BOARD.at = Date.now(); BOARD.err = ""; store.set("ec_boardlist", JSON.stringify(BOARD.list)); return true; };
     if (store.get(flag) === js && old) return fin();
