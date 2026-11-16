@@ -36,6 +36,11 @@ MOCK = r"""
       if(/zzzz/.test(text)) return {en:"", meaning_ko:"영어 표현이 아닌 것 같아요.", when_ko:"", examples:[], note_ko:""};
       return {en:"I'm swamped.", meaning_ko:"일이 너무 많아서 정신이 없어요.", when_ko:"가까운 사이에서 바쁘다고 말할 때 써요.", examples:[{en:"I'm swamped this week.", ko:"이번 주는 일이 너무 많아요."},{en:"Sorry, I was swamped yesterday.", ko:"미안해요, 어제 너무 바빴어요."}], note_ko:""};
     }
+    if(mode === "listen"){
+      if(M.listenBad){ M.listenBad = false; return {title:"x", sents:[]}; }
+      var S = ["I went to the market this morning.","It's not far from our house.","I wanted to buy some fresh fruit.","The seller gave me a big smile.","He asked me where I was from.","I told him I'm from Korea.","We talked for about ten minutes.","Now he's my first friend in this town."];
+      return {title:"A New Friend " + n, title_ko:"새 친구", sents:S.map(function(e, i){ return {en:e, ko:"뜻 " + (i+1), note_ko: i === 1 ? "not far 에서 t 소리가 약해져요." : ""}; }), questions:[{q_ko:"어디에 갔나요?", a_ko:"시장에 갔어요."},{q_ko:"누구와 친구가 됐나요?", a_ko:"과일 파는 분."}], words:[{en:"seller", ko:"파는 사람"},{en:"fresh", ko:"신선한"},{en:"far from", ko:"~에서 먼"}]};
+    }
     if(mode === "talk"){
       if(M.talkEmpty) return {transcript:"", reply:"", scores:{pronunciation:null,intonation:null,fluency:null,grammar:null}};
       return {transcript:T[n % T.length], reply:"Thank you for sharing. What did you do last weekend?", praise_ko:"가족 이야기를 또렷하게 시작했어요.", focus_ko:"주어가 하나일 때 동사에 s를 붙여 보세요.",
@@ -117,6 +122,7 @@ MOCK = r"""
     if(plan === "bad") return resp(200, {candidates:[{content:{parts:[{text:"this is not json"}]}}]});
     if(plan === "empty") return resp(200, {candidates:[], promptFeedback:{blockReason:"OTHER"}});
     var out = reply(mode, text, audio.length);
+    if(plan === "garble"){ var g = JSON.parse(JSON.stringify(out)); (function walk(o){ Object.keys(o).forEach(function(k){ if(typeof o[k] === "string" && /_ko$/.test(k) && o[k]) o[k] = "아주 멃덕하고 퓩로 읽으시네요."; else if(o[k] && typeof o[k] === "object") walk(o[k]); }); })(g); return resp(200, {candidates:[{content:{parts:[{text: JSON.stringify(g)}]}}]}); }
     if(plan === "slow") return new Promise(function(res){ setTimeout(function(){ res(new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify(out)}]}}]}), {status:200})); }, 1200); });
     return resp(200, {candidates:[{content:{parts:[{text: plan === "fenced" ? "```json\n" + JSON.stringify(out) + "\n```" : JSON.stringify(out)}]}}]});
   };

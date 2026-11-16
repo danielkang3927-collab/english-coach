@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 32;
+const BUILD = 33;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -659,6 +659,12 @@ function gSlow(model) { if (!G.slow) gSlowLoad(); const n = (G.slow[model] = (+G
 function gFine(model) { if (!G.slow) gSlowLoad(); if (G.slow[model]) { delete G.slow[model]; store.set("ec_gslow", JSON.stringify(G.slow)); } }
 function gFree(model) { const u = G.block[model]; return !G.dead[model] && !(u && u > Date.now()); }
 /* 모델 순서. 무료 한도는 Flash가 하루 20번쯤, Flash-Lite가 하루 500번쯤이라, 짧은 문장 채점(lite)은 Lite부터 써서 좋은 모델의 한도를 대화·레벨 테스트에 남긴다. */
+/* 깨진 우리말 찾기: 쓰이지 않는 한글 글자(예: 멃, 퓩)가 들어 있으면 모델이 글자를 잘못 만든 것이다. */
+let KO_SET = null;
+function koBadText(t) { if (!KO_SET) { KO_SET = {}; for (let i = 0; i < D.KO_COMMON.length; i++) KO_SET[D.KO_COMMON[i]] = 1; }
+  t = String(t || ""); for (let i = 0; i < t.length; i++) { const c = t.charCodeAt(i); if (c >= 0xAC00 && c <= 0xD7A3 && !KO_SET[t[i]]) return true; } return false; }
+function koBad(o) { if (typeof o === "string") return koBadText(o); if (o && typeof o === "object") return Object.keys(o).some(k => koBad(o[k])); return false; }
+function koStrip(o) { if (typeof o === "string") return koBadText(o) ? "" : o; if (Array.isArray(o)) return o.map(koStrip); if (o && typeof o === "object") { const r = {}; Object.keys(o).forEach(k => { r[k] = koStrip(o[k]); }); return r; } return o; }
 function gOrder(lite) {
   let c = G.chain.filter(n => n !== G.model);
   if (lite && !G.model) c = c.filter(n => /lite/i.test(n)).concat(c.filter(n => !/lite/i.test(n)));
@@ -764,6 +770,12 @@ function gCall(req, status, done0, fail0) {
       if (!text) { fail("선생님이 답을 주지 않았습니다." + (j && j.promptFeedback && j.promptFeedback.blockReason ? " (차단 사유: " + j.promptFeedback.blockReason + ")" : "") + " 「다시 보내기」를 눌러 주세요."); return; }
       const r = parseJson(text);
       if (!r || typeof r !== "object") { fail("선생님의 답을 읽지 못했습니다. 「다시 보내기」를 눌러 주세요."); return; }
+      if (koBad(r)) {                                   /* 우리말 글자가 깨졌으면 한 번은 다른 모델로 다시 받고, 그래도 깨진 문장은 비운다 */
+        gSlow(model);
+        const more = gOrder(req.lite).filter(gFree).filter(n => tried.indexOf(n) < 0);
+        if (!req.koRetried && more.length && liveN() === 0) { req.koRetried = true; status("「" + model + "」의 우리말 글자가 깨져 다른 모델로 다시 받는 중…"); run(); return; }
+        done(koStrip(r), model); return;
+      }
       gFine(model);
       done(r, model);
     })).catch(e => {
@@ -911,6 +923,39 @@ SYS_MODE.ask = [
   ' "note_ko": string (one caution if there is a common mistake Koreans make with it; otherwise empty)}',
   "If what he typed is not English or makes no sense, set en to an empty string and say so in meaning_ko."
 ].join("\n");
+/* ---------- 듣기 코너: 선생님이 새로 쓴 짧은 이야기(방송 대본을 옮기지 않는다) ---------- */
+const LIS_TOPICS = { news: ["쉬운 뉴스", "an easy news-style report about a general, timeless topic such as science, health, weather, daily life or culture. Write it yourself from general knowledge; do not copy or imitate any real broadcast, and do not present invented events as real current news"], faith: ["신앙 이야기", "a short Christian devotional reflection or testimony-style story in simple words (no long Bible quotations)"], daily: ["일상 이야기", "a short everyday story about family, food, travel or work"], field: ["선교지 생활", "a short story about daily life on a mission field: meeting neighbors, the market, a visit, a small problem solved"] };
+const SYS_LISTEN = [
+  "You write listening practice for ONE Korean adult learner of American English. Write original text yourself. Never reproduce or closely imitate a real broadcast, article, book or song.",
+  "Write for the ear: natural spoken American English with contractions and common linking, short clear sentences.",
+  "Return ONLY one JSON object, no markdown:",
+  '{"title": string (English, up to 6 words), "title_ko": string,',
+  ' "sents": [{"en": string (one sentence, 6 to 16 words), "ko": string (natural Korean meaning), "note_ko": string (ONE short Korean line on why this sentence is hard to catch by ear: a linked sound, a weak or reduced word, a contraction, or a dropped t/d, quoting the English words; empty if nothing special)}] (exactly 8 sentences that form one coherent story or report),',
+  ' "questions": [{"q_ko": string, "a_ko": string}] (exactly 2 gist questions in Korean about the main points, with short Korean answers),',
+  ' "words": [{"en": string, "ko": string}] (3 to 5 words or expressions from the text worth knowing)}'
+].join("\n");
+function lisClean(r) {
+  const s = v => String(v == null ? "" : v).replace(/\s+/g, " ").trim();
+  const sents = (Array.isArray(r && r.sents) ? r.sents : []).map(x => ({ en: s(x && x.en).slice(0, 220), ko: s(x && x.ko).slice(0, 220), note: s(x && x.note_ko).slice(0, 220) })).filter(x => /[A-Za-z]{2}/.test(x.en)).slice(0, 12);
+  return { title: s(r && r.title).slice(0, 60) || "Listening", titleKo: s(r && r.title_ko).slice(0, 60), sents: sents,
+    qs: (Array.isArray(r && r.questions) ? r.questions : []).map(x => ({ q: s(x && x.q_ko).slice(0, 200), a: s(x && x.a_ko).slice(0, 200) })).filter(x => x.q).slice(0, 3),
+    words: (Array.isArray(r && r.words) ? r.words : []).map(x => ({ en: s(x && x.en).slice(0, 60), ko: s(x && x.ko).slice(0, 80) })).filter(x => x.en).slice(0, 5) };
+}
+/* 내 글 넣기: 붙여 넣은 영어 글을 문장으로 나눈다 (뜻과 풀이는 없다) */
+function lisFromText(text) { const sents = natSplit(String(text || "").slice(0, 3000)).filter(x => /[A-Za-z]{2}/.test(x)).slice(0, 14).map(en => ({ en: en.slice(0, 260), ko: "", note: "" })); return { title: "내 글", titleKo: "", sents: sents, qs: [], words: [] }; }
+/* 받아쓰기 채점: 낱말 단위로 맞춘 것만 센다 (순서를 지켜 가장 길게 겹치는 부분) */
+function lisWords(t) { return String(t || "").toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean); }
+function lisDiff(target, typed) {
+  const a = lisWords(target), b = lisWords(typed), n = a.length, m = b.length, L = [];
+  for (let i = 0; i <= n; i++) { L.push(new Array(m + 1).fill(0)); }
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const hit = new Array(n).fill(false); let i = 0, j = 0;
+  while (i < n && j < m) { if (a[i] === b[j]) { hit[i] = true; i++; j++; } else if (L[i + 1][j] >= L[i][j + 1]) i++; else j++; }
+  return { words: a, hit: hit, ok: hit.filter(Boolean).length, n: n };
+}
+const LIS_KEY = "ec_listen";
+function lisList() { try { const a = JSON.parse(store.get(LIS_KEY) || "[]"); return Array.isArray(a) ? a.filter(x => x && Array.isArray(x.sents) && x.sents.length) : []; } catch (e) { return []; } }
+function lisSave(p) { const a = lisList().filter(x => x.id !== p.id); a.unshift(p); store.set(LIS_KEY, JSON.stringify(a.slice(0, 30))); }
 const sysFor = mode => SYS_COMMON + "\n\n" + SYS_MODE[mode];
 function profileText() {                           /* 매 요청에 넣는 학습자 정보: 최근 2주 약점, 외우는 구문 */
   const st = tagStats().list.filter(s => s.r > 0 && !s.grad && TAG_EN[s.g]).slice(0, 5), L = [];
@@ -927,7 +972,9 @@ function metricsText(m) {
 const tagOk = (g, kind) => { g = String(g || "").trim(); return D.TAGS[g] && !DEVICE_TAGS[g] && (!kind || D.TAGS[g].k === kind) ? g : ""; };
 const str = (v, n) => String(v == null ? "" : v).trim().slice(0, n || 600);
 function cleanScores(s) { s = s || {}; return { pron: num(s.pronunciation), inton: num(s.intonation), flu: num(s.fluency), gram: num(s.grammar), vocab: num(s.vocabulary), task: num(s.task) }; }
-function cleanGram(a, n) { return (Array.isArray(a) ? a : []).slice(0, n).map(g => ({ said: str(g && g.said, 160), better: str(g && g.better, 160), why: str(g && g.why_ko, 240), tag: tagOk(g && g.tag) || "g_word" })).filter(g => g.better); }
+function cleanGram(a, n) { return (Array.isArray(a) ? a : []).slice(0, n).map(g => ({ said: str(g && g.said, 160), better: str(g && g.better, 160), why: str(g && g.why_ko, 240), tag: tagOk(g && g.tag) || "g_word" })).filter(g => g.better && !sameSay(g.said, g.better)); }
+/* 고친 말이 원래 말과 같으면(대소문자·구두점만 다르면) 고침이 아니다 */
+function sameSay(a, b) { const n = t => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); return n(a) === n(b); }
 function cleanPron(a, n) { return (Array.isArray(a) ? a : []).slice(0, n).map(p => ({ word: str(p && p.word, 40), heard: str(p && p.heard_ko, 160), tip: str(p && p.tip_ko, 240), tag: tagOk(p && p.tag, "p") })).filter(p => p.word); }
 function cleanDelivery(a) { return uniq((Array.isArray(a) ? a : []).map(x => String(x)).filter(x => x === "d_filler" || x === "d_ending")); }
 function cleanPairs(a, n) { return (Array.isArray(a) ? a : []).slice(0, n).map(c => ({ en: str(c && c.en, 160), ko: str(c && c.ko, 160) })).filter(c => c.en); }
@@ -951,7 +998,7 @@ function cleanRetell(r) {
 }
 function cleanTest(r) {
   return { transcript: str(r.transcript, 1500), sc: cleanScores(r.scores), comment: str(r.comment_ko, 400), natural: str(r.natural, 1500), sents: cleanPairs(r.sents, 12),
-    gram: (Array.isArray(r.grammar) ? r.grammar : []).slice(0, 4).map(g => ({ said: str(g && g.said, 160), better: str(g && g.better, 160), why: "", tag: tagOk(g && g.tag) || "g_word" })).filter(g => g.better),
+    gram: (Array.isArray(r.grammar) ? r.grammar : []).slice(0, 4).map(g => ({ said: str(g && g.said, 160), better: str(g && g.better, 160), why: "", tag: tagOk(g && g.tag) || "g_word" })).filter(g => g.better && !sameSay(g.said, g.better)),
     pron: (Array.isArray(r.pronunciation) ? r.pronunciation : []).slice(0, 4).map(p => ({ word: str(p && p.word, 40), tag: tagOk(p && p.tag, "p") })).filter(p => p.word),
     delivery: cleanDelivery(r.delivery_tags) };
 }

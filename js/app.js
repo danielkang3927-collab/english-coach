@@ -1,7 +1,7 @@
 "use strict";
 /* 영어 말하기 코치 — 화면과 훈련 흐름. 기준은 SPEC.md. */
 const U = { tab: "home", scene: 0, f: { script: "", phEn: "", phKo: "", askEn: "", bk: "", gkey: "" }, remember: true, tagSel: null, ordSel: null, showZero: false,
-  phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0, flash: null, smsg: null, diag: null, back: null, ask: null, mic: "", nickMsg: null, loopSrc: "cum", loopRate: +store.get("ec_looprate") || 1, loopEcho: true, loopForever: true, loopMsg: null, shortMsg: null, natOpen: false, natN: 5, natMsg: null, natBusy: null };
+  phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0, flash: null, smsg: null, diag: null, back: null, ask: null, mic: "", lisTopic: store.get("ec_listopic") || "faith", lisBusy: false, lisMsg: null, lisOld: false, nickMsg: null, loopSrc: "cum", loopRate: +store.get("ec_looprate") || 1, loopEcho: true, loopForever: true, loopMsg: null, shortMsg: null, natOpen: false, natN: 5, natMsg: null, natBusy: null };
 let A = null;                                     /* 진행 중인 훈련 */
 let SAY = [], KEEP = [];                                     /* 「듣기」 버튼이 읽을 글 */
 const REC = { on: false, busy: false, t0: 0, timer: null, max: 0, done: null };
@@ -27,7 +27,7 @@ function setMsg(text, err) {
 const hm = sec => { const m = Math.floor(sec / 60); return m >= 60 ? Math.floor(m / 60) + "시간 " + (m % 60) + "분" : m + "분"; };
 const dueText = s => { const n = s.d - today(); return n <= 0 ? "오늘" : (n === 1 ? "내일" : n + "일 뒤"); };
 const avgOf = s => avg([s.pron, s.inton, s.flu, s.gram]);
-const KIND = { talk: "대화", retell: "다시 말하기", phr: "구문", dr: "훈련", test: "레벨 테스트", old: "이전 기록" };
+const KIND = { talk: "대화", retell: "다시 말하기", phr: "구문", dr: "훈련", test: "레벨 테스트", listen: "듣기", old: "이전 기록" };
 
 /* ---------- 그리기 ---------- */
 const TABS = [["home", "홈"], ["train", "훈련"], ["weak", "약점"], ["phr", "구문"], ["rec", "기록"]];
@@ -60,6 +60,7 @@ function render() {
   keepAwake(REC.on || !!(A && A.phase === "sending"));
 }
 function go(tab) {
+  navPush(tab);
   U.tab = tab; U.note = (tab === "train" && A && A.phase === "fail" && A.failMsg) ? { text: A.failMsg, err: true } : ((tab === "train" && A && A.phase === "sending" && A.prog) ? { text: A.prog } : null);
   if (tab === "train") U.flash = null;
   render(); window.scrollTo(0, 0);
@@ -213,8 +214,9 @@ function natCard() {
   return h + msgBox(U.natMsg);
 }
 /* 이어 듣기: 고른 문장 묶음을 차례로 읽어 준다 */
-const LOOP_SRC = { cum: "오늘·어제 익힌 문장", fix: "틀렸던 문장", nat: "선생님 모범답안 (최근 대화 5번)", my: "내 구문 전체", learn: "연습 중인 구문" };
+const LOOP_SRC = { lis: "듣기 이야기 (최근 3편)", cum: "오늘·어제 익힌 문장", fix: "틀렸던 문장", nat: "선생님 모범답안 (최근 대화 5번)", my: "내 구문 전체", learn: "연습 중인 구문" };
 function loopItems(src) {
+  if (src === "lis") { const o = []; lisList().slice(0, 3).forEach(p => p.sents.forEach(x => o.push({ en: x.en, role: "teacher" }))); return o; }
   if (src === "fix") return fixList().map(p => ({ en: p.en }));
   if (src === "nat") { const o = []; natList().slice(0, 5).forEach(r => natSents(r.nat, r.ns).forEach(x => o.push({ en: x.en, role: "teacher" }))); return o; }
   if (src === "my") return DB.my.map(p => ({ en: p.en }));
@@ -248,10 +250,55 @@ function drawTrain() {
     (sc.script ? '<label for="ecScript">읽을 영어 원고 (설교, 기도문, 「말씀함께」 영어 본문 등)</label><textarea id="ecScript" data-bind="script" placeholder="여기에 영어 원고를 붙여 넣으세요">' + esc(U.f.script) + '</textarea>' : "") +
     '<div class="ec-row">' + btn("시작", "start", "talk") + '</div>');
   h += row(STEP_NAME.retell, "오늘 대화에서 고칠 것이 많았던 대답을, 자연스러운 표현을 익힌 뒤 가리고 다시 말합니다. 실력이 붙는 단계입니다.", "오늘 " + r.st.retell + " / " + p.retell, btn("시작", "start", "retell"));
+  const lp = lisList();
+  h += '<section class="ec-card"><div class="ec-row between"><h2>듣기 · 귀 뚫기</h2><span class="ec-sub">지금까지 ' + DB.log.filter(r => r.k === "listen").length + '번</span></div>' +
+    '<p class="ec-sub">선생님이 내 수준에 맞춰 새로 쓴 1분 이야기를 성우 목소리로 듣습니다. ① 글 없이 듣기 → ② 안 들린 문장 받아쓰기 → ③ 글 보며 왜 안 들렸는지 확인 → ④ 따라 말하기. 이야기 하나에 요청 한 번입니다.</p>' +
+    '<label for="ecLisTopic">주제</label><select id="ecLisTopic" data-chg="lisTopic">' + Object.keys(LIS_TOPICS).map(k => '<option value="' + k + '"' + (k === U.lisTopic ? " selected" : "") + '>' + LIS_TOPICS[k][0] + '</option>').join("") + '</select>' +
+    '<div class="ec-row">' + btn(U.lisBusy ? "이야기를 쓰는 중…" : "새 이야기로 시작", "lisNew", null, U.lisBusy ? "ghost" : "") + (lp.length ? btn("지난 이야기 다시 (" + lp.length + ")", "lisOld", null, "ghost") : "") + '</div>' + msgBox(U.lisMsg) +
+    (U.lisOld && lp.length ? lp.slice(0, 10).map(p => '<button class="ec-item" data-act="lisOpen" data-arg="' + esc(p.id) + '"><b>' + esc(p.title) + '</b><small>' + esc(p.titleKo || "") + ' · 문장 ' + p.sents.length + '개</small></button>').join("") : "") +
+    '<details class="ec-lisown"><summary>내 글로 듣기 (영어 설교 원고, 「말씀함께」 영어 본문 등)</summary><textarea id="ecLisOwn" data-bind="lisOwn" placeholder="내가 쓴 영어 글을 붙여 넣으세요. 남의 방송 대본이나 책은 넣지 마세요.">' + esc(U.f.lisOwn || "") + '</textarea><div class="ec-row">' + btn("이 글로 시작", "lisOwn", null, "small") + '</div></details></section>';
   h += row("레벨 테스트", "과제 4개(낭독, 일상 질문, 경험 이야기, 설명). 약 6분, 채점 요청 4번. 일주일에 한 번을 권합니다.", "지금까지 " + tests().length + "번", btn("시작", "start", "test", "ghost"));
   return h;
 }
 
+/* ---------- 듣기 코너 ---------- */
+const LIS_STEP = ["① 글 없이 듣기", "② 받아쓰기", "③ 글 보며 듣기", "④ 따라 말하기"];
+function lisStart(p, topic) {
+  if (REC.on) return;
+  A = { type: "listen", title: "듣기 · " + p.title, p: p, topic: topic || "", step: 0, heard: 0, show: false, dict: lisPick(p.sents).map(i => ({ i: i, typed: "", res: null })), phase: "idle" };
+  loopStop(); speakStop(); go("train");
+}
+function lisPick(sents) { const n = sents.length, k = Math.min(3, n), out = []; for (let j = 0; j < k; j++) { const i = Math.min(n - 1, Math.round((j + 0.5) * n / k - 0.5)); if (out.indexOf(i) < 0) out.push(i); } return out; }
+function lisAll(echo) { loopStart(A.p.sents.map(x => ({ en: x.en, role: "teacher" })), { rate: U.loopRate, echo: !!echo, forever: !!echo }); A.heard++; render(); }
+function drawListen() {
+  const p = A.p, st = A.step;
+  let h = '<div class="ec-steps">' + LIS_STEP.map((n, i) => '<button class="ec-step' + (i < st ? " done" : "") + '" data-act="lisStep" data-arg="' + i + '"' + (i === st ? ' aria-current="step"' : "") + '><span>' + n + '</span><b>' + (i < st ? "✓" : i === st ? "지금" : "") + '</b></button>').join("") + '</div>';
+  const player = (echo) => '<div class="ec-row">' + (LOOP.on ? btn("■ 멈춤", "loopStop") : btn(echo ? "▶ 따라 말하기 시작" : "▶ 전체 듣기", "lisPlay", echo ? "echo" : "")) + '</div><div id="ecLoopSt" class="' + (LOOP.on ? "ec-msg" : "") + '">' + (LOOP.on ? "읽는 중 " + (Math.min(LOOP.i, LOOP.list.length - 1) + 1) + " / " + LOOP.list.length : "") + '</div>';
+  if (st === 0) {
+    h += card("① 글 없이 듣기", '<p class="ec-sub">글을 보지 말고 두 번 들어 보세요. 낱말 하나하나가 아니라 누가, 무엇을, 왜 했는지만 잡으면 됩니다. 처음에는 절반만 들려도 괜찮습니다.</p>' + player(false) +
+      '<p class="ec-sub">들은 횟수 ' + A.heard + '번</p>' +
+      (p.qs.length ? '<h3>들으면서 답을 찾아보세요</h3>' + p.qs.map((q, i) => '<p>' + (i + 1) + '. ' + esc(q.q) + (A.show ? '<br><span class="ec-sub">→ ' + esc(q.a) + '</span>' : "") + '</p>').join("") + (A.show ? "" : '<div class="ec-row">' + btn("답 확인", "lisShow", null, "ghost small") + '</div>') : "") +
+      '<div class="ec-row end">' + btn("다음: 받아쓰기", "lisStep", "1") + '</div>');
+  } else if (st === 1) {
+    h += card("② 받아쓰기", '<p class="ec-sub">문장을 듣고 들리는 대로 적어 보세요. 여러 번 들어도 됩니다. 철자보다 낱말을 잡았는지가 중요합니다. 못 들은 낱말이 바로 귀가 아직 못 잡는 소리입니다.</p>' +
+      A.dict.map((d, k) => { const s = p.sents[d.i];
+        let b = '<h3>문장 ' + (k + 1) + ' ' + say(s.en, "듣기", "teacher") + '</h3>';
+        if (!d.res) b += '<input type="text" id="ecDict' + k + '" data-bind="dict' + k + '" value="' + esc(U.f["dict" + k] || "") + '" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="들린 대로 영어로"><div class="ec-row">' + btn("확인", "lisCheck", String(k), "small") + '</div>';
+        else b += '<div class="ec-nat"><p>' + d.res.words.map((w, i) => d.res.hit[i] ? esc(w) : '<b class="s-bad">' + esc(w) + '</b>').join(" ") + '</p><p class="ec-sub">내가 적은 것: ' + esc(d.typed || "(비움)") + '<br>들은 낱말 ' + d.res.ok + ' / ' + d.res.n + (s.note ? '<br>' + esc(s.note) : "") + '</p></div>';
+        return b; }).join("") +
+      '<div class="ec-row end">' + btn("다음: 글 보며 듣기", "lisStep", "2") + '</div>');
+  } else if (st === 2) {
+    h += card("③ 글 보며 듣기", '<p class="ec-sub">이제 글을 보며 듣습니다. 안 들렸던 곳이 왜 안 들렸는지 풀이를 보고, 그 문장만 다시 들어 보세요. 소리가 이어지거나 약해지는 곳을 알면 다음부터 들립니다.</p>' + player(false) +
+      p.sents.map(s => '<div class="ec-fix"><b>' + esc(s.en) + '</b> ' + say(s.en, "듣기", "teacher") + (s.ko ? '<div class="ec-sub">' + esc(s.ko) + '</div>' : "") + (s.note ? '<div>' + esc(s.note) + '</div>' : "") + '</div>').join("") +
+      (p.words.length ? '<h3>알아 둘 말</h3>' + p.words.map(w => '<p>' + esc(w.en) + ' <span class="ec-sub">' + esc(w.ko) + '</span></p>').join("") : "") +
+      '<div class="ec-row end">' + btn("다음: 따라 말하기", "lisStep", "3") + '</div>');
+  } else {
+    h += card("④ 따라 말하기", '<p class="ec-sub">문장마다 읽은 길이만큼 틈을 둡니다. 그 사이에 들은 그대로 소리 내어 따라 말하세요. 입으로 낼 수 있는 소리가 귀에도 들립니다. 처음에는 글을 보고, 다음에는 보지 않고 해 보세요.</p>' + player(true) +
+      '<details><summary class="ec-sub">글 보기</summary>' + p.sents.map(s => '<p>' + esc(s.en) + '</p>').join("") + '</details>' +
+      '<p class="ec-sub">며칠 뒤 「구문」의 「이어 듣기」에서 "듣기 이야기"를 골라 길에서 다시 들으면 굳습니다.</p><div class="ec-row end">' + btn("듣기 마치기", "lisDone") + '</div>');
+  }
+  return h;
+}
 /* ---------- 녹음 공통 ---------- */
 function recBtn(label) {
   if (REC.on) return '<button class="ec-btn rec on" data-act="rec">■ 녹음 끝내기 <span id="ecRecT">0:00</span></button>';
@@ -293,7 +340,7 @@ function nextBtn() { const ns = nextStep(); return ns ? btn("다음 단계: " + 
 function drawStage() {
   let h = '<div class="ec-row between ec-stagehead">' + btn("← 목록", "quit", null, "ghost small") + '<b>' + esc(A.title) + '</b></div>';
   if (A.quitAsk) h += '<div class="ec-msg err">아직 채점하지 않은 녹음이 있습니다. 그만두면 사라집니다.<div class="ec-row">' + btn("그만두기", "quit", "yes", "small") + btn("계속하기", "stay", null, "ghost small") + '</div></div>';
-  const body = A.type === "batch" ? drawBatch() : (A.type === "talk" ? drawTalk() : (A.type === "retell" ? drawRetell() : drawTest()));
+  const body = A.type === "batch" ? drawBatch() : (A.type === "talk" ? drawTalk() : (A.type === "retell" ? drawRetell() : (A.type === "listen" ? drawListen() : drawTest())));
   return h + body + (body.indexOf('id="ecMsg"') < 0 ? noteHtml() : "");
 }
 
@@ -723,6 +770,7 @@ function recSummary(r) {
   if (r.k === "talk" || r.k === "retell") return "평균 " + r0(avg(r.s || [])) + " · " + esc(short(r.tx || "", 40));
   if (r.k === "phr" || r.k === "dr") return r.ok + " / " + r.n + " 맞음";
   if (r.k === "test") return r.lv + " · " + (r.score == null ? "–" : r.score.toFixed(1)) + "점";
+  if (r.k === "listen") return esc(r.title || "") + (r.dn ? " · 받아쓰기 " + r.dk + " / " + r.dn + " 낱말" : "");
   return esc(r.title || "") + " · 평균 " + r0(avg(r.s || []));
 }
 function recDetail(r) {
@@ -735,6 +783,8 @@ function recDetail(r) {
     if ((r.fx || []).length) h += r.fx.map(f => '<div class="ec-fix"><del>' + esc(f.a) + '</del> → <b>' + esc(f.b) + '</b></div>').join("");
   } else if (r.k === "phr" || r.k === "dr") {
     h += (r.it || []).map(x => { const it = itemByRef(x[0]); return '<div class="ec-fix"><b>' + (x[1] ? "✓" : "✗") + '</b> ' + esc(it ? it.en : x[0]) + (x[4] ? '<div class="ec-sub">들린 말: ' + esc(x[4]) + '</div>' : "") + '</div>'; }).join("");
+  } else if (r.k === "listen") {
+    h += '<p class="ec-sub">' + esc(r.topic || "") + ' · 문장 ' + (r.n || 0) + '개' + (r.dn ? ' · 받아쓰기에서 들은 낱말 ' + r.dk + ' / ' + r.dn : "") + '</p>' + (r.tx ? '<div class="ec-said small">' + esc(r.tx) + '</div>' : "");
   } else if (r.k === "test") {
     h += '<div class="ec-scores">' + Object.keys(PART_NAME).map(k => scoreCell(PART_NAME[k], (r.parts || {})[k])).join("") + '</div>' + (r.tasks || []).map(t => '<h3>' + TEST_NAME[t.k] + '</h3><p class="ec-sub">' + esc(t.c || "") + '</p><div class="ec-said small">' + esc(t.tx || "") + '</div>' + (t.nat ? '<p class="ec-sub">이렇게 말하면 자연스럽습니다</p>' + natHtml(t.nat, t.ns) : "")).join("");
   } else {
@@ -770,7 +820,7 @@ function coachReport() {
   if (rec.length) L.push("대화 대답 " + rec.length + "개 평균: 속도 " + r0(avg(rec.map(r => r.m[5]))) + "단어/분, 대답당 멈춤 " + r1(avg(rec.map(r => r.m[2]))) + "번, 높낮이 폭 " + r1(avg(rec.map(r => r.m[4]))) + "반음");
   const top = S.list.filter(s => s.r > 0).slice(0, 6);
   L.push("자주 나온 약점: " + (top.length ? top.map(s => D.TAGS[s.g].n + " " + s.r + "번(" + TREND[s.trend] + ")").join(", ") : "기록 없음"));
-  const fx = []; for (let i = DB.log.length - 1; i >= 0 && fx.length < 8; i--) (DB.log[i].fx || []).forEach(f => { if (fx.length < 8) fx.push("- " + f.a + " → " + f.b + " [" + (D.TAGS[f.g] ? D.TAGS[f.g].n : "") + "]"); });
+  const fx = []; for (let i = DB.log.length - 1; i >= 0 && fx.length < 8; i--) (DB.log[i].fx || []).forEach(f => { if (fx.length < 8 && !sameSay(f.a, f.b)) fx.push("- " + f.a + " → " + f.b + " [" + (D.TAGS[f.g] ? D.TAGS[f.g].n : "") + "]"); });
   if (fx.length) L.push("최근 틀린 말:\n" + fx.join("\n"));
   const cnt = { new: 0, learning: 0, known: 0 }; allPhrases().forEach(p => { cnt[phraseState(p.id)]++; });
   L.push("구문: 익힘 " + cnt.known + ", 연습 중 " + cnt.learning + ", 새 구문 " + cnt.new);
@@ -941,6 +991,36 @@ const ACT = {
   loopGo: () => { if (REC.on) return; const it = loopItems(U.loopSrc); if (!it.length) { U.loopMsg = { text: "이 묶음에는 아직 문장이 없습니다. 다른 묶음을 골라 주세요." }; render(); return; }
     U.loopMsg = null; loopStart(it, { rate: U.loopRate, echo: U.loopEcho, forever: U.loopForever }); render(); },
   loopStop: () => { loopStop(); speakStop(); render(); },
+  lisNew: () => {
+    if (U.lisBusy || REC.on) return;
+    if (!needKey()) return;
+    if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
+    const topic = LIS_TOPICS[U.lisTopic] ? U.lisTopic : "daily", lv = (tests().slice(-1)[0] || {}).lv || "B1";
+    const seen = lisList().slice(0, 8).map(p => p.title).join("; ");
+    U.lisBusy = true; U.lisMsg = { text: "선생님이 이야기를 쓰고 있습니다. 20초쯤 걸립니다." }; render();
+    const end = m => { U.lisBusy = false; U.lisMsg = m; if (U.tab === "train" && !A) render(); };
+    gCall({ sys: SYS_LISTEN, temp: 0.9, lite: true, parts: [{ text: "MODE: listen\nTOPIC: " + LIS_TOPICS[topic][1] + "\nLEARNER LEVEL (CEFR): " + lv + ". Keep vocabulary at or slightly below this level.\nDo not repeat these earlier titles: " + (seen || "none") }] }, () => {}, r => {
+      const p = lisClean(r);
+      if (p.sents.length < 4) { end({ text: "이야기를 제대로 받지 못했습니다. 한 번 더 눌러 주세요.", err: true }); return; }
+      p.id = "L" + newId(); p.t = now(); p.topic = LIS_TOPICS[topic][0]; lisSave(p); U.lisBusy = false; U.lisMsg = null;
+      if (A || REC.on) { U.flash = { text: "듣기 이야기가 준비됐습니다. 「훈련」의 듣기에서 「지난 이야기 다시」로 열 수 있습니다." }; render(); return; }
+      lisStart(p, p.topic);
+    }, why => end({ text: why || "이야기를 받지 못했습니다. 잠시 뒤에 다시 눌러 주세요.", err: true }));
+  },
+  lisOld: () => { U.lisOld = !U.lisOld; render(); },
+  lisOpen: a => { const p = lisList().filter(x => x.id === a)[0]; if (!p) return; if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; } U.lisOld = false; lisStart(p, p.topic); },
+  lisOwn: () => { const p = lisFromText(U.f.lisOwn); if (p.sents.length < 2) { U.lisMsg = { text: "영어 글을 두 문장 이상 넣어 주세요.", err: true }; render(); return; }
+    if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
+    p.id = "L" + newId(); p.t = now(); p.topic = "내 글"; p.title = "내 글 · " + p.sents[0].en.split(" ").slice(0, 4).join(" "); lisSave(p); U.lisMsg = null; lisStart(p, "내 글"); },
+  lisPlay: a => { if (!A || A.type !== "listen") return; lisAll(a === "echo"); },
+  lisShow: () => { if (A && A.type === "listen") { A.show = true; render(); } },
+  lisStep: a => { if (!A || A.type !== "listen") return; const y = +a; if (!(y >= 0 && y <= 3)) return; loopStop(); speakStop(); A.step = y; render(); window.scrollTo(0, 0); },
+  lisCheck: a => { if (!A || A.type !== "listen") return; const d = A.dict[+a]; if (!d) return; const y = window.scrollY; d.typed = String(U.f["dict" + a] || "").trim().slice(0, 300); d.res = lisDiff(A.p.sents[d.i].en, d.typed); render(); window.scrollTo(0, y); },
+  lisDone: () => { if (!A || A.type !== "listen") return; loopStop(); speakStop();
+    const dn = A.dict.filter(d => d.res).reduce((s, d) => s + d.res.n, 0), dk = A.dict.filter(d => d.res).reduce((s, d) => s + d.res.ok, 0);
+    logAdd({ k: "listen", title: A.p.title, topic: A.topic, n: A.p.sents.length, dn: dn, dk: dk, heard: A.heard, tx: A.p.sents.map(x => x.en).join(" ").slice(0, 900) });
+    [0, 1, 2].forEach(k => { U.f["dict" + k] = ""; });
+    A = null; pendSave(); U.lisMsg = { text: "듣기를 마쳤습니다." + (dn ? " 받아쓰기에서 낱말 " + dk + " / " + dn + "개를 들었습니다." : "") + " 며칠 뒤 「이어 듣기」에서 다시 들어 보세요." }; go("train"); },
   yestGo: () => { if (REC.on) return; const it = pickYest(3); if (!it.length) { U.shortMsg = { text: "구문을 한 번 익히면 다음 날부터 여기에 복습 문제가 나옵니다." }; render(); return; }
     if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
     A = null; U.tagSel = null; U.ordSel = null; U.shortMsg = null; startBatch("phr", it, "지난 문장 복습", null); if (A) A.again = true; },
@@ -1002,6 +1082,7 @@ const CHG = {
   loopRate: el => { U.loopRate = +el.value || 1; store.set("ec_looprate", String(U.loopRate)); if (LOOP.on) { LOOP.rate = U.loopRate; try { if (XI.audio) XI.audio.defaultPlaybackRate = LOOP.rate; } catch (e) {} } },
   loopEcho: el => { U.loopEcho = !!el.checked; if (LOOP.on) LOOP.echo = U.loopEcho; },
   loopForever: el => { U.loopForever = !!el.checked; if (LOOP.on) LOOP.forever = U.loopForever; },
+  lisTopic: el => { U.lisTopic = el.value; store.set("ec_listopic", U.lisTopic); },
   scene: el => { U.scene = +el.value || 0; render(); },
   remember: el => { U.remember = el.checked; },
   xiVoice: el => { xiSetVoice(el.value); keyTouch("x"); XI.off = 0; U.xiMsg = null; render(); speak("Hello. I am your English coach.", "teacher"); },
@@ -1090,7 +1171,7 @@ function micWatch() {
 }
 micWatch();
 /* 이어 듣기 진행 표시: 화면 전체를 다시 그리지 않고 한 줄만 바꾼다. 끝나면 단추를 되돌린다. */
-LOOP.onPaint = () => { const el = $("ecLoopSt"); if (LOOP.on) { if (el) { el.className = "ec-msg"; el.textContent = loopStatus(); } } else if (U.tab === "phr" && !REC.on) { const y = window.scrollY; render(); window.scrollTo(0, y); } };
+LOOP.onPaint = () => { const el = $("ecLoopSt"); if (LOOP.on) { if (el) { el.className = "ec-msg"; el.textContent = (A && A.type === "listen" && U.tab === "train") ? "읽는 중 " + (Math.min(LOOP.i, LOOP.list.length - 1) + 1) + " / " + LOOP.list.length : loopStatus(); } } else if ((U.tab === "phr" || (U.tab === "train" && A && A.type === "listen")) && !REC.on) { const y = window.scrollY; render(); window.scrollTo(0, y); } };
 /* 맨 위에서 아래로 길게 당겨 새로 고침. 스치는 손짓에는 반응하지 않도록 110px 넘게, 0.35초 넘게 당긴 뒤 놓았을 때만. 녹음·채점·훈련 중에는 하지 않는다. */
 const PULL = { y0: null, x0: 0, t0: 0, d: 0, el: null, NEED: 110, HOLD: 350 };
 function pullOk() { return window.scrollY <= 0 && !REC.on && !(A && (A.phase === "sending" || hasWork(A))) && !ttsPlaying() && !(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)); }
@@ -1105,3 +1186,24 @@ document.addEventListener("touchmove", e => { if (PULL.y0 == null) return; const
   PULL.d = dy; pullShow(dy, pullReady()); }, { passive: true });
 document.addEventListener("touchend", () => { if (PULL.y0 == null) return; const ok = pullReady() && pullOk(); PULL.y0 = null; if (ok) { if (PULL.el) PULL.el.textContent = "새로 고치는 중…"; pullRefresh(); } else pullShow(0, false); PULL.d = 0; }, { passive: true });
 document.addEventListener("touchcancel", () => { PULL.y0 = null; PULL.d = 0; pullShow(0, false); }, { passive: true });
+/* 뒤로 가기: 화면을 옮길 때마다 브라우저 기록에 남겨, 옆으로 미는 손짓·기기의 뒤로 단추로 앞 화면의 보던 자리로 돌아간다. */
+const NAV = { i: 0, busy: false };
+function navPush(tab) {
+  if (NAV.busy || tab === U.tab) return;
+  try { history.replaceState({ ec: 1, i: NAV.i, tab: U.tab, y: Math.round(window.scrollY) }, ""); NAV.i++; history.pushState({ ec: 1, i: NAV.i, tab: tab, y: 0 }, ""); } catch (e) {}
+}
+function navBack() { if (NAV.i > 0 && !REC.on) { try { history.back(); return true; } catch (e) {} } return false; }
+window.addEventListener("popstate", e => {
+  const st = e.state; if (!st || !st.ec || REC.on) return;
+  NAV.i = st.i || 0; NAV.busy = true;
+  U.tagSel = null; U.ordSel = null; U.delAsk = null; U.back = null; U.unseenMsg = null; U.tab = st.tab || "home";
+  U.note = (U.tab === "train" && A && A.phase === "fail" && A.failMsg) ? { text: A.failMsg, err: true } : null;
+  render(); NAV.busy = false;
+  const y = st.y || 0; window.scrollTo(0, y); setTimeout(() => window.scrollTo(0, y), 30);
+});
+try { history.replaceState({ ec: 1, i: 0, tab: U.tab, y: 0 }, ""); } catch (e) {}
+/* 옆으로 미는 손짓 = 뒤로. 옆으로 굴리는 줄(상황 고르기)이나 글 칸에서 시작한 손짓, 위아래로 움직인 손짓은 빼고, 90px 넘게 밀었을 때만. */
+const SWIPE = { x: null, y: 0, t: 0 };
+document.addEventListener("touchstart", e => { const el = e.target; SWIPE.x = (e.touches.length === 1 && !(el && el.closest && el.closest("input,textarea,select,.ec-cats,.ec-att,[data-noswipe]"))) ? e.touches[0].clientX : null; SWIPE.y = e.touches[0].clientY; SWIPE.t = Date.now(); SWIPE.dx = 0; SWIPE.dy = 0; }, { passive: true });
+document.addEventListener("touchmove", e => { if (SWIPE.x == null) return; SWIPE.dx = e.touches[0].clientX - SWIPE.x; SWIPE.dy = e.touches[0].clientY - SWIPE.y; }, { passive: true });
+document.addEventListener("touchend", () => { if (SWIPE.x == null) return; const dx = Math.abs(SWIPE.dx || 0), dy = Math.abs(SWIPE.dy || 0); SWIPE.x = null; if (dx >= 90 && dy < 45 && dx > dy * 2.5 && Date.now() - SWIPE.t < 900) navBack(); }, { passive: true });
