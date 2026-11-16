@@ -191,7 +191,8 @@ const D = (function(){
     {id:"worship", name:"예배 인도", open:"Let's practice leading worship in English. Please welcome the congregation and invite them to worship, as if the service is starting right now."},
     {id:"sermon", name:"설교 연습", open:"Let's practice preaching. Choose one Bible verse you love, and explain it to me as if I have never heard the gospel."},
     {id:"read", name:"원고 낭독 코칭", open:"Please read your text aloud, clearly and naturally. I will listen to your pronunciation and intonation.", script:true},
-    {id:"free", name:"자유 주제", open:"Hello! What would you like to talk about today?"}
+    {id:"free", name:"자유 주제", open:"Hello! What would you like to talk about today?"},
+    {id:"today", name:"오늘 하루 세 문장", open:"Tell me three things that happened today. Short sentences are fine. What happened first?"}
   ];
 
   /* 장면마다 여는 말을 여러 개 두고 날짜에 따라 돌려 쓴다 (매일 같은 질문이 되지 않게) */
@@ -225,7 +226,10 @@ const D = (function(){
     {id:"m_self", t:"간증 1분 버전을 휴대폰으로 녹음해서 직접 들어 보기"},
     {id:"m_verse", t:"영어 성경 한 구절을 외워서 소리 내어 말하기"},
     {id:"m_tutor", t:"이번 달 원어민(튜터, 선교사)과 15분 대화 약속 잡기"},
-    {id:"m_bless", t:"영어 축도를 외워서 말하기"}
+    {id:"m_bless", t:"영어 축도를 외워서 말하기"},
+    {id:"m_news", t:"영어 뉴스레터나 영어 뉴스 첫 화면에서 제목 다섯 개와 첫 문장만 소리 내어 읽기"},
+    {id:"m_ask", t:"오늘 마주친 영어 표현 하나를 「구문」의 「마주친 표현 물어보기」에 넣고, 내 구문에 담기"},
+    {id:"m_mumble", t:"오늘 익힌 문장을 이동하는 길에 「듣기」로 듣고 중얼중얼 따라 말하기"}
   ];
 
   const PLAN = {5:{phr:3, dr:2, talk:1, retell:0}, 15:{phr:5, dr:4, talk:2, retell:1}, 30:{phr:8, dr:6, talk:4, retell:2}, 60:{phr:10, dr:8, talk:6, retell:3}};

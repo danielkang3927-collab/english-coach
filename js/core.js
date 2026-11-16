@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 23;
+const BUILD = 24;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -127,6 +127,32 @@ function pickCumul(max) {
     .sort((x, y) => DB.srs[x].l - DB.srs[y].l).slice(0, max || 20)
     .map(id => ({ ref: id, task: "recall", ko: by[id].ko, en: by[id].en, focus: "" }));
 }
+/* 어제 복습: 어제 익힌 문장 가운데 덜 익은 것부터 세 개를 우리말만 보고 말한다. 어제 한 것이 없으면 가장 최근에 한 날의 문장. */
+function pickYest(max) {
+  const d = today(), by = {}; allPhrases().forEach(p => { by[p.id] = p; });
+  const ids = Object.keys(DB.srs).filter(id => by[id] && DB.srs[id].n > 0 && DB.srs[id].l < d);
+  if (!ids.length) return [];
+  const last = Math.max.apply(null, ids.map(id => DB.srs[id].l));
+  return ids.filter(id => DB.srs[id].l === last).sort((x, y) => DB.srs[x].b - DB.srs[y].b).slice(0, max || 3)
+    .map(id => ({ ref: id, task: "recall", ko: by[id].ko, en: by[id].en, focus: "" }));
+}
+function yestAgo() { const d = today(), ls = Object.keys(DB.srs).filter(id => DB.srs[id].n > 0 && DB.srs[id].l < d).map(id => DB.srs[id].l); return ls.length ? d - Math.max.apply(null, ls) : 0; }
+/* 선생님 모범답안: 문장별로 끊어 듣고, 모아 두었다가 다시 쓴다. 따로 저장하지 않고 대화 기록(log)에서 꺼낸다. */
+function natSplit(text) {
+  const raw = String(text || "").replace(/\s+/g, " ").trim().match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g) || [], out = [];
+  raw.forEach(x => { x = x.trim(); if (!x) return;
+    const prev = out[out.length - 1];
+    if (prev && (/\b(Mr|Mrs|Ms|Dr|St|Rev)\.$/.test(prev) || !/[A-Za-z0-9]/.test(x))) out[out.length - 1] = prev + " " + x; else out.push(x); });
+  return out;
+}
+function natSents(nat, sents) {
+  const sp = natSplit(nat), a = (Array.isArray(sents) ? sents : []).filter(x => x && x.en);
+  const key = t => String(t).toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (a.length && key(a.map(x => x.en).join("")) === key(nat)) return a.map(x => ({ en: String(x.en).trim(), ko: String(x.ko || "").trim() }));
+  const by = {}; a.forEach(x => { by[key(x.en)] = String(x.ko || "").trim(); });
+  return sp.map(en => ({ en: en, ko: by[key(en)] || "" }));
+}
+function natList() { return DB.log.filter(r => r && r.k === "talk" && r.nat && /[A-Za-z]/.test(r.nat)).slice().sort((x, y) => y.t - x.t); }
 function allPhrases() { return DB.my.map(p => ({ id: p.id, c: "my", en: p.en, ko: p.ko || "" })).concat(D.PHRASES); }
 function phraseState(id) { const s = DB.srs[id]; if (!s || !s.n) return "new"; return s.b >= 4 ? "known" : "learning"; }
 function newOrder() {                              /* 새 구문 순서: 내가 담은 것 먼저, 그다음 상황별로 하나씩 돌아가며 */
@@ -701,6 +727,9 @@ const SYS_COMMON = [
   "- Every field ending in _ko is natural Korean in polite 해요체, one or two short sentences, concrete. Say what to do with the mouth, tongue, stress or word order. No grammar lectures.",
   "- English that you address to him is simple and clear (CEFR A2-B1) in short sentences.",
   "- Most important first. A few sharp points help more than many.",
+  "- Correct only the part that is wrong. Keep the rest of his sentence the way he said it, so he can see exactly what changed.",
+  "- When you say why something is wrong, give the reason in one Korean line with as few grammar terms as possible.",
+  "- Praise is specific: quote the words he said well. Criticism is brief.",
   "- Encourage honestly. Never inflate scores. Scores are integers 0-100; 100 means indistinguishable from an educated native speaker, 60 means understandable with effort.",
   "",
   "PATTERN TAGS",
@@ -724,6 +753,7 @@ const SYS_MODE = {
     ' "fluency_ko": string (pauses, speed, restarts; use the device numbers),',
     ' "grammar": [{"said": string (his words), "better": string, "why_ko": string, "tag": string}] (at most 4),',
     ' "natural": string (his whole answer the way a native speaker would say it: same meaning, same length, simple words he can reuse),',
+    ' "sents": [{"en": string, "ko": string}] (every sentence of "natural", in the same order, one sentence per item, each with its natural Korean meaning),',
     ' "chunks": [{"en": string, "ko": string}] (take the ONE or TWO sentences of "natural" where his word order was most Korean, or the first two sentences if order was fine; cut them into meaning chunks in English order — subject+verb first, then object, place, time, reason; "ko" is the Korean meaning of that chunk only; at most 10 chunks),',
     ' "order_ko": string (one tip on English word order based on this answer, or empty if his order was fine),',
     ' "phrases": [{"en": string, "ko": string}] (1 to 3 short reusable expressions from "natural" worth memorizing as a unit, useful for his goals),',
@@ -772,6 +802,16 @@ const SYS_MODE = {
     ' "delivery_tags": [string] (only d_filler and/or d_ending)}'
   ].join("\n")
 };
+SYS_MODE.ask = [
+  "MODE: ask — no recording this time. He met an English expression today and typed it. Explain it so that he can use it himself.",
+  "Return this JSON:",
+  '{"en": string (the expression in its natural, correct form; fix spelling if he mistyped it),',
+  ' "meaning_ko": string (what it means, one short line),',
+  ' "when_ko": string (the situations where he can use it himself, and how formal or casual it is, one or two short sentences),',
+  ' "examples": [{"en": string, "ko": string}] (two or three short example sentences he could really say in daily life or ministry, CEFR A2-B1),',
+  ' "note_ko": string (one caution if there is a common mistake Koreans make with it; otherwise empty)}',
+  "If what he typed is not English or makes no sense, set en to an empty string and say so in meaning_ko."
+].join("\n");
 const sysFor = mode => SYS_COMMON + "\n\n" + SYS_MODE[mode];
 function profileText() {                           /* 매 요청에 넣는 학습자 정보: 최근 2주 약점, 외우는 구문 */
   const st = tagStats().list.filter(s => s.r > 0 && !s.grad && TAG_EN[s.g]).slice(0, 5), L = [];
@@ -794,7 +834,7 @@ function cleanDelivery(a) { return uniq((Array.isArray(a) ? a : []).map(x => Str
 function cleanPairs(a, n) { return (Array.isArray(a) ? a : []).slice(0, n).map(c => ({ en: str(c && c.en, 160), ko: str(c && c.ko, 160) })).filter(c => c.en); }
 function cleanTalk(r) {
   return { transcript: str(r.transcript, 1500), reply: str(r.reply, 500), praise: str(r.praise_ko, 300), focus: str(r.focus_ko, 300), repeat: str(r.repeat_ko, 300),
-    pron: cleanPron(r.pronunciation, 4), inton: str(r.intonation_ko, 300), flu: str(r.fluency_ko, 300), gram: cleanGram(r.grammar, 4), natural: str(r.natural, 1500),
+    pron: cleanPron(r.pronunciation, 4), inton: str(r.intonation_ko, 300), flu: str(r.fluency_ko, 300), gram: cleanGram(r.grammar, 4), natural: str(r.natural, 1500), sents: cleanPairs(r.sents, 12),
     chunks: cleanPairs(r.chunks, 10), order: str(r.order_ko, 300), phrases: cleanPairs(r.phrases, 3), delivery: cleanDelivery(r.delivery_tags), sc: cleanScores(r.scores) };
 }
 function cleanBatch(r, n) {

@@ -32,6 +32,10 @@ MOCK = r"""
            "We eat dinner together and my wife cook Korean food for them."];
   function reply(mode, text, audio){
     var M = window.__mock, n = M.n++;
+    if(mode === "ask"){
+      if(/zzzz/.test(text)) return {en:"", meaning_ko:"영어 표현이 아닌 것 같아요.", when_ko:"", examples:[], note_ko:""};
+      return {en:"I'm swamped.", meaning_ko:"일이 너무 많아서 정신이 없어요.", when_ko:"가까운 사이에서 바쁘다고 말할 때 써요.", examples:[{en:"I'm swamped this week.", ko:"이번 주는 일이 너무 많아요."},{en:"Sorry, I was swamped yesterday.", ko:"미안해요, 어제 너무 바빴어요."}], note_ko:""};
+    }
     if(mode === "talk"){
       if(M.talkEmpty) return {transcript:"", reply:"", scores:{pronunciation:null,intonation:null,fluency:null,grammar:null}};
       return {transcript:T[n % T.length], reply:"Thank you for sharing. What did you do last weekend?", praise_ko:"가족 이야기를 또렷하게 시작했어요.", focus_ko:"주어가 하나일 때 동사에 s를 붙여 보세요.",
@@ -40,6 +44,7 @@ MOCK = r"""
         intonation_ko:"문장 끝이 모두 같은 높이였어요.", fluency_ko:"단어 사이 멈춤이 잦았어요.",
         grammar:[{said:"My family is four", better:"There are four of us in my family", why_ko:"가족 수는 There are 로 말해요.", tag:"g_order"},{said:"my son like swimming", better:"my son likes swimming", why_ko:"주어가 하나라서 s가 붙어요.", tag:"g_sva"},{said:"We go to Vietnam last year", better:"We went to Vietnam last year", why_ko:"지난 일이라 과거형이에요.", tag:"g_tense"},{said:"very good time", better:"a really good time", why_ko:"관사가 필요해요.", tag:"not_a_tag"},{said:"extra", better:"dropped", why_ko:"", tag:"g_art"}],
         natural:"There are four of us in my family. My first son likes swimming. We went to Vietnam last year.",
+        sents:[{en:"There are four of us in my family.", ko:"우리 가족은 네 명이에요."},{en:"My first son likes swimming.", ko:"큰아들은 수영을 좋아해요."},{en:"We went to Vietnam last year.", ko:"우리는 작년에 베트남에 갔어요."}],
         chunks:[{en:"There are four of us", ko:"우리는 네 명이에요"},{en:"in my family", ko:"우리 가족은"},{en:"We went", ko:"우리는 갔어요"},{en:"to Vietnam", ko:"베트남에"},{en:"last year", ko:"작년에"}],
         order_ko:"'누가 + 한다'를 먼저 말하고 장소와 시간을 뒤에 붙이세요.",
         phrases:[{en:"There are four of us in my family.", ko:"우리 가족은 네 명입니다."},{en:"I'm looking forward to it.", ko:"기대하고 있어요."}],

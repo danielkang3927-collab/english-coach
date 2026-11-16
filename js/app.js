@@ -1,9 +1,9 @@
 "use strict";
 /* 영어 말하기 코치 — 화면과 훈련 흐름. 기준은 SPEC.md. */
-const U = { tab: "home", scene: 0, f: { script: "", phEn: "", phKo: "", bk: "", gkey: "" }, remember: true, tagSel: null, ordSel: null, showZero: false,
-  phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0, flash: null, smsg: null, diag: null, back: null };
+const U = { tab: "home", scene: 0, f: { script: "", phEn: "", phKo: "", askEn: "", bk: "", gkey: "" }, remember: true, tagSel: null, ordSel: null, showZero: false,
+  phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0, flash: null, smsg: null, diag: null, back: null, ask: null, shortMsg: null, natOpen: false, natN: 5, natMsg: null, natBusy: null };
 let A = null;                                     /* 진행 중인 훈련 */
-let SAY = [];                                     /* 「듣기」 버튼이 읽을 글 */
+let SAY = [], KEEP = [];                                     /* 「듣기」 버튼이 읽을 글 */
 const REC = { on: false, busy: false, t0: 0, timer: null, max: 0, done: null };
 
 /* ---------- 작은 조각 ---------- */
@@ -40,7 +40,7 @@ function drawGate() {
     '<p class="ec-sub">로그인하지 않으면 기록이 이 기기에만 남습니다. 나중에 「설정」에서 로그인할 수 있습니다.</p>' + btn("로그인 없이 시작", "gateSkip", null, "ghost small") + '</div>';
 }
 function render() {
-  SAY = [];
+  SAY = []; KEEP = [];
   let h;
   const gate = gateOn();
   document.body.classList.toggle("ec-gated", gate);
@@ -134,6 +134,9 @@ function drawHome() {
   }).join("") + '</div>';
   t += ns ? btn((r.st.phr + r.st.dr + r.st.talk + r.st.retell ? "이어서 하기: " : "오늘 루틴 시작: ") + STEP_NAME[ns], "routine", null, "wide") : '<div class="ec-msg">오늘 루틴을 마쳤습니다. 더 하고 싶으면 「훈련」에서 골라 주세요.</div>';
   h += card("오늘", t);
+  const yq = pickYest(3), ya = yestAgo();
+  h += card("짧게 하나만", '<p class="ec-sub">시작할 때는 지난번 문장 세 개를 우리말만 보고 말해 보고, 하루를 마칠 때는 오늘 있었던 일을 세 문장으로 말해 고침을 받습니다. 고쳐 준 문장은 내 구문에 담겨 다시 나옵니다.</p>' +
+    '<div class="ec-row">' + btn(yq.length ? (ya === 1 ? "어제" : ya + "일 전") + " 복습 " + yq.length + "문제" : "복습할 지난 문장이 아직 없습니다", "yestGo", null, yq.length ? "" : "ghost") + btn("오늘 하루 세 문장", "todayGo", null, "ghost") + '</div>' + msgBox(U.shortMsg));
   /* 집중 약점 */
   const S = tagStats(), by = {}; S.list.forEach(s => { by[s.g] = s; });
   h += card("지금 집중할 약점 세 가지", focusTags().map(g => '<button class="ec-item" data-act="tagOpen" data-arg="' + g + '"><b>' + esc(D.TAGS[g].n) + '</b><small>' + (by[g].r ? "최근 2주 " + by[g].r + "번" : "기본 추천 (아직 기록 없음)") + ' · ' + esc(D.TAGS[g].fix) + '</small></button>').join("") +
@@ -150,6 +153,46 @@ function drawHome() {
   return h;
 }
 
+/* 모범답안을 문장별로: 듣기, (뜻이 있으면) 내 구문에 담기 */
+function natHtml(nat, sents) {
+  const a = natSents(nat, sents), have = {}; allPhrases().forEach(p => { have[p.en.toLowerCase()] = 1; });
+  let h = '<div class="ec-nat">' + a.map(x => {
+    let b = "";
+    KEEP.push(x);
+    if (have[x.en.toLowerCase()]) b = ' <span class="ec-sub" style="white-space:nowrap">담김</span>';
+    else if (x.ko) b = ' <button class="ec-mini" data-act="natAdd" data-arg="' + (KEEP.length - 1) + '">담기</button>';
+    else b = U.natBusy === x.en ? ' <span class="ec-sub" style="white-space:nowrap">뜻 받는 중…</span>' : ' <button class="ec-mini" data-act="natAsk" data-arg="' + (KEEP.length - 1) + '">뜻 받아 담기</button>';
+    return '<p>' + esc(x.en) + ' ' + say(x.en, "듣기", "teacher") + b + (x.ko ? '<br><span class="ec-sub">' + esc(x.ko) + '</span>' : "") + '</p>';
+  }).join("") + '</div>';
+  if (a.length > 1) h += '<div class="ec-row">' + say(nat, "전체 이어 듣기", "teacher") + '</div>';
+  return h;
+}
+function natCard() {
+  const L = natList(); let n = 0; L.forEach(r => { n += natSents(r.nat, r.ns).length; });
+  let h = '<p class="ec-sub">선생님과의 대화에서 내 말을 자연스럽게 고쳐 준 답안이 여기에 모입니다. 문장마다 듣고, 쓰고 싶은 문장은 내 구문에 담아 입으로 익히세요. 기록과 함께 계정에 저장됩니다.</p>' +
+    btn(L.length ? (U.natOpen ? "접기" : "모범답안 보기 (대화 " + L.length + "번 · " + n + "문장)") : "아직 대화 기록이 없습니다", "natOpen", null, L.length ? (U.natOpen ? "ghost" : "") : "ghost");
+  if (U.natOpen && L.length) {
+    const have = {}; allPhrases().forEach(p => { have[p.en.toLowerCase()] = 1; });
+    const noKo = L.slice(0, U.natN).some(r => natSents(r.nat, r.ns).some(x => !x.ko && !have[x.en.toLowerCase()]));
+    L.slice(0, U.natN).forEach(r => { const sc = D.SCENES.find(x => x.id === r.sc), dt = new Date(r.t);
+      h += '<div class="ec-hr"></div><p class="ec-sub"><b>' + (dt.getMonth() + 1) + "월 " + dt.getDate() + "일 · " + esc(sc ? sc.name : "대화") + '</b>' + (r.q ? '<br>질문: ' + esc(r.q) : "") + '</p>' + natHtml(r.nat, r.ns); });
+    if (noKo) h += '<p class="ec-sub">예전 답안에는 우리말 뜻이 없어, 「뜻 받아 담기」를 누르면 선생님에게 뜻을 받아서 담습니다(요청 한 번). 이번 판부터 하는 대화는 뜻이 함께 나옵니다.</p>';
+    if (L.length > U.natN) h += '<div class="ec-row">' + btn("더 보기 (" + (L.length - U.natN) + "번 남음)", "natMore", null, "ghost small") + '</div>';
+  }
+  return h + msgBox(U.natMsg);
+}
+function askHtml() {
+  const a = U.ask; if (!a) return "";
+  if (a.busy) return '<div class="ec-msg">선생님에게 물어보는 중입니다…</div>';
+  if (a.err) return '<div class="ec-msg err">' + esc(a.err) + '</div>';
+  const r = a.r, ex = (Array.isArray(r.examples) ? r.examples : []).filter(e => e && e.en).slice(0, 3);
+  let h = '<div class="ec-hr"></div><p><b>' + esc(r.en) + '</b> ' + say(r.en, "듣기", "teacher") + '</p><p>' + esc(r.meaning_ko || "") + '</p>';
+  if (r.when_ko) h += '<p class="ec-sub">이럴 때: ' + esc(r.when_ko) + '</p>';
+  if (r.note_ko) h += '<p class="ec-sub">조심: ' + esc(r.note_ko) + '</p>';
+  h += '<div class="ec-row">' + btn(a.added && a.added.m ? "담았습니다" : "이 표현 내 구문에 담기", "askAdd", "m", a.added && a.added.m ? "ghost small" : "small") + '</div>';
+  ex.forEach((e, i) => { h += '<p>' + esc(e.en) + ' ' + say(e.en, "듣기") + '<br><span class="ec-sub">' + esc(e.ko || "") + '</span></p><div class="ec-row">' + btn(a.added && a.added[i] ? "담았습니다" : "이 예문 담기", "askAdd", String(i), "ghost small") + '</div>'; });
+  return h + msgBox(a.msg);
+}
 /* ---------- 훈련 목록 ---------- */
 function drawTrain() {
   const p = PLAN(), r = dayRec(), due = dueList().length, f = focusTags(), sc = D.SCENES[U.scene];
@@ -352,7 +395,7 @@ function talkSend() {
     const c = cleanTalk(r);
     if (!c.transcript) { me.pend = null; me.phase = "idle"; pendSave(); if (U.tab !== "train") U.flash = { text: me.title + ": 말소리를 알아듣지 못했다고 합니다." }; render(); setMsg("선생님이 말소리를 알아듣지 못했다고 합니다. 다시 녹음해 주세요.", true); return; }
     const sc = D.SCENES[me.scene], words = wc(c.transcript), tags = tagsOf(c, p.m, words, !!sc.script);
-    const rec = logAdd({ k: "talk", sc: sc.id, q: me.q.slice(0, 240), tx: c.transcript.slice(0, 900), nat: c.natural.slice(0, 900), ch: c.chunks, s: [c.sc.pron, c.sc.inton, c.sc.flu, c.sc.gram], m: mPack(p.m, words), tags,
+    const rec = logAdd({ k: "talk", sc: sc.id, q: me.q.slice(0, 240), tx: c.transcript.slice(0, 900), nat: c.natural.slice(0, 900), ns: c.sents.map(x => ({ en: x.en, ko: x.ko })), ch: c.chunks, s: [c.sc.pron, c.sc.inton, c.sc.flu, c.sc.gram], m: mPack(p.m, words), tags,
       fx: c.gram.map(g => ({ a: g.said.slice(0, 120), b: g.better.slice(0, 120), g: g.tag })), pr: c.pron.map(x => ({ w: x.word, g: x.tag })), md: model });
     const day = dayRec(); day.st.talk++; day.said += sentences(c.transcript); daySave();
     me.turns.push({ q: me.q, r: c, m: p.m, words, tags, id: rec.id, model, open: false });
@@ -373,7 +416,7 @@ function turnOpen(t, i, last) {
   if (r.gram.length) h += '<h3>문법·표현</h3>' + r.gram.map(g => '<div class="ec-fix"><del>' + esc(g.said) + '</del> → <b>' + esc(g.better) + '</b> ' + say(g.better) + '<div class="ec-sub">' + esc(g.why) + '</div>' + tagChip(g.tag) + '</div>').join("");
   if (r.pron.length) h += '<h3>발음</h3>' + r.pron.map(p => '<div class="ec-fix"><b>' + esc(p.word) + '</b> ' + say(p.word) + ' <span class="ec-sub">' + esc(p.heard) + '</span><div>' + esc(p.tip) + '</div>' + tagChip(p.tag) + '</div>').join("");
   if (r.inton || r.flu) h += '<h3>억양·유창성</h3><p>' + esc(r.inton) + ' ' + esc(r.flu) + '</p>';
-  if (r.natural) h += '<h3>이렇게 말하면 자연스럽습니다</h3><div class="ec-nat">' + esc(r.natural) + ' ' + say(r.natural) + '</div>';
+  if (r.natural) h += '<h3>이렇게 말하면 자연스럽습니다</h3>' + natHtml(r.natural, r.sents) + '<p class="ec-sub">문장마다 따로 들을 수 있습니다. 이 답안은 「구문」의 「선생님 모범답안 모음」에 모입니다.</p>';
   if (r.chunks.length) h += '<h3>영어 어순으로 끊어 보기</h3>' + chunkHtml(r.chunks, false) + (r.order ? '<p class="ec-sub">' + esc(r.order) + '</p>' : "");
   else if (r.order) h += '<h3>어순</h3><p>' + esc(r.order) + '</p>';
   if (r.phrases.length) h += '<h3>외워 둘 구문</h3>' + r.phrases.map((p, j) => {
@@ -599,6 +642,10 @@ function drawPhrases() {
     btn(cu.length ? "누적 암송 시작 (" + cu.length + "문장)" : "오늘·어제 익힌 문장이 아직 없습니다", "cumGo", null, cu.length ? "" : "ghost"));
   h += card("틀렸던 문장 다시 말하기", '<p class="ec-sub">대화·다시 말하기·레벨 테스트에서 선생님이 고쳐 준 문장은 자동으로 내 구문에 담깁니다. 처음에는 듣고 따라 말하고, 다음부터는 틀렸던 말을 보고 바른 문장으로 말합니다. 입에 붙을 때까지 1·3·7·14·30·60일 간격으로 다시 나옵니다.</p>' +
     '<div class="ec-row">' + btn(fx.length ? "틀렸던 문장 훈련 (" + fx.length + "개 중 " + Math.min(8, fx.length) + "개)" : "아직 고친 문장이 없습니다", "fixGo", null, fx.length ? "" : "ghost") + btn("지난 기록에서 모으기", "fixScan", null, "ghost small") + '</div>' + msgBox(U.fixMsg));
+  h += card("선생님 모범답안 모음", natCard());
+  h += card("마주친 표현 물어보기", '<p class="ec-sub">오늘 듣거나 읽은 영어 표현을 넣으면 뜻, 내가 쓸 수 있는 상황, 예문을 알려 줍니다. 마음에 들면 내 구문에 담아 입으로 익히세요.</p>' +
+    '<label for="ecAskEn">영어 표현</label><input type="text" id="ecAskEn" data-bind="askEn" value="' + esc(U.f.askEn) + '" placeholder="예: I\'m swamped.">' +
+    '<div class="ec-row">' + btn(U.ask && U.ask.busy ? "물어보는 중…" : "물어보기", "askGo", null, U.ask && U.ask.busy ? "ghost" : "") + (U.ask && !U.ask.busy ? btn("지우기", "askClear", null, "ghost small") : "") + '</div>' + askHtml());
   h += card("내 구문 담기", '<label for="ecPhEn">영어</label><input type="text" id="ecPhEn" data-bind="phEn" value="' + esc(U.f.phEn) + '" placeholder="예: Let me pray for you."><label for="ecPhKo">우리말 뜻</label><input type="text" id="ecPhKo" data-bind="phKo" value="' + esc(U.f.phKo) + '" placeholder="예: 제가 기도해 드릴게요.">' +
     '<div class="ec-row">' + btn("담기", "phAdd") + '</div>' + msgBox(U.phMsg));
   const list = all.filter(p => U.phCat === "all" || p.c === U.phCat);
@@ -814,6 +861,43 @@ const ACT = {
   ordDrill: a => { U.back = null; if (A && hasWork(A)) { ACT.start("dr"); return; } A = null; startBatch("dr", orderDrills(a), "어순 훈련", null); },
   /* 구문 */
   phCat: a => { U.phCat = a; U.delAsk = null; render(); },
+  natOpen: () => { U.natOpen = !U.natOpen; U.natN = 5; U.natMsg = null; render(); },
+  natMore: () => { U.natN += 10; render(); },
+  natAdd: a => { const x = KEEP[+a]; if (!x) return; const y = window.scrollY, r = addMyPhrase(x.en, x.ko);
+    const m = { text: r ? "내 구문에 담았습니다. 다음 구문 복습에 먼저 나옵니다." : "이미 내 구문에 있습니다." };
+    if (r) syncSoon(); if (U.tab === "phr") U.natMsg = m; render(); if (U.tab !== "phr") setMsg(m.text); window.scrollTo(0, y); },
+  natAsk: a => { const x = KEEP[+a]; if (!x || U.natBusy) return; const en = x.en, y0 = window.scrollY;
+    const show = m => { U.natBusy = null; if (U.tab === "phr") { U.natMsg = m; if (!REC.on) { const y = window.scrollY; render(); window.scrollTo(0, y); } } else if (!REC.on) setMsg(m.text, m.err); };
+    U.natBusy = en; U.natMsg = null; render(); window.scrollTo(0, y0);
+    gCall({ sys: sysFor("ask"), temp: 0.2, parts: [{ text: "MODE: ask\nEXPRESSION: " + en }] }, () => {}, r => {
+      const ko = r && String(r.meaning_ko || "").trim();
+      if (!ko) { show({ text: "뜻을 받지 못했습니다. 잠시 뒤에 다시 눌러 주세요.", err: true }); return; }
+      const ok = addMyPhrase(en, ko); if (ok) syncSoon();
+      show({ text: ok ? "뜻을 받아 내 구문에 담았습니다: " + ko : "이미 내 구문에 있습니다." });
+    }, why => show({ text: why || "뜻을 받지 못했습니다. 잠시 뒤에 다시 눌러 주세요.", err: true })); },
+  yestGo: () => { if (REC.on) return; const it = pickYest(3); if (!it.length) { U.shortMsg = { text: "구문을 한 번 익히면 다음 날부터 여기에 복습 문제가 나옵니다." }; render(); return; }
+    if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
+    A = null; U.tagSel = null; U.ordSel = null; U.shortMsg = null; startBatch("phr", it, "지난 문장 복습", null); if (A) A.again = true; },
+  todayGo: () => { const i = D.SCENES.findIndex(x => x.id === "today"); if (i < 0) return; U.scene = i; ACT.start("talk"); },
+  askGo: () => {
+    if (U.ask && U.ask.busy) return;
+    const q = String(U.f.askEn || "").trim().replace(/\s+/g, " ").slice(0, 200);
+    if (!q) { U.ask = { err: "영어 표현을 넣어 주세요." }; render(); return; }
+    const me = U.ask = { q: q, busy: true }, show = () => { if (U.tab === "phr" && !REC.on) render(); };
+    render();
+    gCall({ sys: sysFor("ask"), temp: 0.2, parts: [{ text: "MODE: ask\nEXPRESSION: " + q }] }, () => {}, r => {
+      if (U.ask !== me) return; me.busy = false;
+      if (!r || !String(r.en || "").trim()) me.err = (r && r.meaning_ko) || "영어 표현으로 알아듣지 못했습니다. 철자를 확인해 주세요."; else me.r = r;
+      show();
+    }, why => { if (U.ask !== me) return; me.busy = false; me.err = why || "답을 받지 못했습니다. 잠시 뒤에 다시 물어봐 주세요."; show(); });
+  },
+  askClear: () => { U.ask = null; U.f.askEn = ""; render(); },
+  askAdd: a => { const me = U.ask; if (!me || !me.r) return; const ex = (Array.isArray(me.r.examples) ? me.r.examples : []).filter(e => e && e.en);
+    const it = a === "m" ? { en: me.r.en, ko: me.r.meaning_ko } : ex[+a]; if (!it) return;
+    const r = addMyPhrase(it.en, it.ko); me.added = me.added || {};
+    if (r === false) { me.added[a] = true; me.msg = { text: "이미 내 구문에 있습니다." }; }
+    else if (r) { me.added[a] = true; me.msg = { text: "담았습니다. 다음 구문 복습에 먼저 나옵니다." }; syncSoon(); }
+    render(); },
   cumGo: () => { if (REC.on) return; const it = pickCumul(20); if (!it.length) return;
     if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
     A = null; U.tagSel = null; U.ordSel = null; startBatch("phr", it, "누적 암송", null); if (A) A.again = true; },
