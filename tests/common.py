@@ -284,6 +284,11 @@ class FakeGoogle:
             rows.sort(key=lambda r: (r[1]["fields"][field]["timestampValue"], r[0])); rows = rows[: sq.get("limit", 10 ** 9)]
             rt = self.now(); pre = "projects/%s/databases/(default)/documents/" % FBCFG["projectId"]
             self.send(route, 200, [{"document": {"name": pre + k, "fields": v["fields"], "createTime": v["createTime"], "updateTime": v["updateTime"]}, "readTime": rt} for k, v in rows] or [{"readTime": rt}]); return
+        if rest == "board" and request.method == "GET":          # 함께 보기: 로그인한 누구나 목록을 읽는다
+            self.count["get"] += 1; pre = "projects/%s/databases/(default)/documents/" % FBCFG["projectId"]
+            if getattr(self, "board_deny", False): self.err(route, 403, "PERMISSION_DENIED", "Missing or insufficient permissions."); return
+            self.send(route, 200, {"documents": [{"name": pre + k, **v} for k, v in sorted(self.docs.items()) if k.startswith("board/")]}); return
+        if rest.startswith("board/") and not getattr(self, "board_deny", False) and (request.method == "GET" or rest == "board/" + uid): mine = lambda p: True
         shared_ok = rest.startswith("shared/") and (request.method == "GET" or uid == getattr(self, "share_owner", "U1001"))   # 함께 쓰는 키: 읽기는 로그인한 누구나, 쓰기는 주인만
         if not mine(rest) and not shared_ok: self.err(route, 403, "PERMISSION_DENIED", "Missing or insufficient permissions."); return
         if request.method == "GET":

@@ -1,7 +1,7 @@
 "use strict";
 /* 영어 말하기 코치 — 화면과 훈련 흐름. 기준은 SPEC.md. */
 const U = { tab: "home", scene: 0, f: { script: "", phEn: "", phKo: "", askEn: "", bk: "", gkey: "" }, remember: true, tagSel: null, ordSel: null, showZero: false,
-  phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0, flash: null, smsg: null, diag: null, back: null, ask: null, mic: "", shortMsg: null, natOpen: false, natN: 5, natMsg: null, natBusy: null };
+  phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0, flash: null, smsg: null, diag: null, back: null, ask: null, mic: "", nickMsg: null, shortMsg: null, natOpen: false, natN: 5, natMsg: null, natBusy: null };
 let A = null;                                     /* 진행 중인 훈련 */
 let SAY = [], KEEP = [];                                     /* 「듣기」 버튼이 읽을 글 */
 const REC = { on: false, busy: false, t0: 0, timer: null, max: 0, done: null };
@@ -105,6 +105,17 @@ function weekChange() {
   const f = (L, i) => avg(L.map(r => r.m[i])), pp = L => avg(L.map(r => r.m[6] >= 5 ? r.m[2] / (r.m[6] / 60) : null));
   return { wpm: [f(prev, 5), f(cur, 5)], ppm: [pp(prev), pp(cur)], st: [f(prev, 4), f(cur, 4)] };
 }
+function boardHtml() {
+  if (!boardOn()) return '<p class="ec-sub">함께 보기를 꺼 두었습니다. 내 현황은 공유되지 않고, 다른 사람의 현황도 보이지 않습니다.</p><div class="ec-row">' + btn("설정에서 켜기", "tab", "set", "ghost small") + '</div>';
+  const w = weekNo(today()), d = today(), me = AUTH.uid, all = BOARD.list || [];
+  const act = all.filter(x => x.w === w && (x.mn > 0 || x.dn > 0)).sort((a, b) => b.dn - a.dn || b.mn - a.mn), rest = all.length - act.length;
+  let h = '<p><b>' + (act.length ? "이번 주 " + act.length + "명이 함께 연습하고 있습니다." : "이번 주에는 아직 시작한 사람이 없습니다. 첫 사람이 되어 보세요.") + '</b></p>';
+  h += act.map(x => '<div class="ec-bd' + (x.id === me ? " me" : "") + '"><span>' + (x.d === d && x.td === 2 ? "✓ " : x.d === d && x.td === 1 ? "· " : "") + esc(x.n || "이름 없음") + (x.id === me ? " (나)" : "") + '</span><small>루틴 ' + x.dn + '일 · ' + hm(x.mn * 60) + (x.st >= 2 ? ' · 연속 ' + x.st + '일' : "") + '</small></div>').join("");
+  if (rest > 0) h += '<p class="ec-sub">이번 주 시작 전: ' + rest + '명</p>';
+  if (!DB.set.nick) h += '<div class="ec-row">' + btn("함께 보기에 보일 이름 정하기", "tab", "set", "small") + '</div>';
+  h += '<p class="ec-sub">이름 앞의 ✓는 오늘 루틴을 마친 사람, ·는 오늘 연습한 사람입니다. 서로에게는 이름(별명)과 이번 주 루틴 일수·연습 시간·연속 일수만 보입니다. 점수·녹음·문장은 보이지 않습니다.' + (BOARD.err ? ' <span class="s-bad">지금은 불러오지 못했습니다.</span>' : "") + '</p>';
+  return h;
+}
 function weekHtml() {
   const W = weekView(), goal = DB.set.minutes, st = streak(), r = dayRec(), tdone = dayDone(today()), ns = nextStep();
   let left = 0; const p = PLAN(); ["phr", "dr", "talk", "retell"].forEach(k => { if (p[k] > 0 && r.st[k] < p[k]) left++; });
@@ -127,6 +138,7 @@ function drawHome() {
   if (fbReady() && SYNC.ask) h += card("계정 확인이 필요합니다", '<p>이 기기의 기록을 지금 로그인한 계정에 합칠지 정해 주세요.</p>' + btn("설정에서 정하기", "tab", "set"));
   else if (fbReady() && !AUTH.uid) h += card("기기를 바꿔도 기록이 이어지게", '<p class="ec-sub">구글로 로그인하면 휴대폰·아이패드·노트북에서 같은 기록을 씁니다. 기록은 합치기만 하고 지우지 않습니다.</p>' + btn("구글로 로그인", "login"));
   h += card("나의 학습 현황", weekHtml());
+  if (fbReady() && AUTH.uid) h += card("함께 하는 사람들", boardHtml());
   /* 등급과 목표 */
   let lv = "";
   if (last) {
@@ -812,6 +824,10 @@ function drawSettings() {
   if (order.length) g += '<label for="ecGModelPick">먼저 쓸 모델</label><select id="ecGModelPick" data-chg="gmodel"><option value=""' + (G.model ? "" : " selected") + '>자동 (가장 좋은 모델부터)</option>' + G.chain.map(n => '<option value="' + esc(n) + '"' + (n === G.model ? " selected" : "") + '>' + esc(n) + '</option>').join("") + '</select>' +
     '<div class="ec-sub ec-gap">쓰는 순서 (막히면 자동으로 다음 모델)</div><ol class="ec-ol">' + order.map(n => '<li>' + esc(n) + ' <span class="ec-sub">— ' + gStateOf(n) + '</span></li>').join("") + '</ol><div class="ec-row">' + btn("한도 기록 지우고 다시 시도", "gReset", null, "ghost small") + '</div>';
   let h = card("선생님 연결 (Gemini)", g);
+  if (fbReady()) h += card("함께 보기", '<p class="ec-sub">이 앱을 쓰는 사람들끼리 이번 주 학습 현황을 서로 봅니다. 보이는 것은 아래 이름과 이번 주 루틴 일수·연습 시간·연속 일수뿐입니다. 로그인한 사람은 누구나 볼 수 있으니 이름은 별명으로 적어 주세요.</p>' +
+    '<label class="ec-check"><input type="checkbox" id="ecShare" data-chg="share"' + (boardOn() ? " checked" : "") + '> 내 학습 현황을 함께 보기에 공유하기</label>' +
+    '<label for="ecNick">함께 보기에 보일 이름 (20자까지)</label><input type="text" id="ecNick" data-bind="nick" maxlength="20" value="' + esc(U.f.nick != null ? U.f.nick : (DB.set.nick || "")) + '" placeholder="예: 요셉">' +
+    '<div class="ec-row">' + btn("이름 저장", "nickSave") + '</div>' + msgBox(U.nickMsg) + (AUTH.uid ? "" : '<p class="ec-sub">구글로 로그인해야 함께 보기가 켜집니다.</p>'));
   h += card("마이크를 매번 묻지 않게", '<p class="ec-sub">마이크 허용을 기억하는 것은 앱이 아니라 기기의 브라우저입니다. 아래처럼 한 번 「허용」으로 바꿔 두면 이 기기에서는 다시 묻지 않습니다.</p>' +
     '<p><b>이 기기의 지금 상태:</b> ' + (U.mic === "granted" ? '<span class="s-good">항상 허용됨</span>' : U.mic === "denied" ? '<span class="s-bad">막혀 있음</span>' : U.mic === "prompt" ? "켤 때마다 물어봄" : "알 수 없음 (이 브라우저는 알려 주지 않습니다)") + '</p>' +
     '<p class="ec-sub"><b>아이폰·아이패드 (Safari)</b><br>① 이 앱을 Safari로 연 채 주소창의 「가가」 또는 「⋯」 단추 → 「웹사이트 설정」 → 마이크 → 「허용」<br>② 또는 설정 앱 → 앱 → Safari → 마이크 → 「허용」 (모든 사이트에 적용)</p>' +
@@ -904,6 +920,8 @@ const ACT = {
       const ok = addMyPhrase(en, ko); if (ok) syncSoon();
       show({ text: ok ? "뜻을 받아 내 구문에 담았습니다: " + ko : "이미 내 구문에 있습니다." });
     }, why => show({ text: why || "뜻을 받지 못했습니다. 잠시 뒤에 다시 눌러 주세요.", err: true })); },
+  nickSave: () => { const n = String(U.f.nick != null ? U.f.nick : (DB.set.nick || "")).replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 20);
+    DB.set.nick = n; dbSave("set"); U.f.nick = null; U.nickMsg = { text: n ? "「" + n + "」(으)로 저장했습니다." + (boardOn() ? "" : " 지금은 공유가 꺼져 있습니다.") : "이름을 비웠습니다. 「이름 없음」으로 보입니다." }; syncSoon(300); render(); },
   yestGo: () => { if (REC.on) return; const it = pickYest(3); if (!it.length) { U.shortMsg = { text: "구문을 한 번 익히면 다음 날부터 여기에 복습 문제가 나옵니다." }; render(); return; }
     if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
     A = null; U.tagSel = null; U.ordSel = null; U.shortMsg = null; startBatch("phr", it, "지난 문장 복습", null); if (A) A.again = true; },
@@ -986,6 +1004,7 @@ const ACT = {
   diag: () => { U.diag = [{ ok: true, text: "점검 중…" }]; render(); diagRun().then(out => { U.diag = out; if (U.tab === "set") render(); }); }
 };
 const CHG = {
+  share: el => { DB.set.share = !!el.checked; dbSave("set"); U.nickMsg = { text: el.checked ? "공유를 켰습니다." : "공유를 껐습니다. 올려 둔 내 현황을 비웁니다." }; syncSoon(300); render(); },
   scene: el => { U.scene = +el.value || 0; render(); },
   remember: el => { U.remember = el.checked; },
   xiVoice: el => { xiSetVoice(el.value); keyTouch("x"); XI.off = 0; U.xiMsg = null; render(); speak("Hello. I am your English coach.", "teacher"); },

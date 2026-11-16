@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 25;
+const BUILD = 26;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -42,7 +42,7 @@ function dbLoad() {
   if (isMap(day)) Object.keys(day).forEach(d => { const r = day[d]; if (!isMap(r) || !/^\d+$/.test(d)) return; const st = isMap(r.st) ? r.st : {}; DB.day[d] = { sec: +r.sec || 0, said: +r.said || 0, st: { phr: +st.phr || 0, dr: +st.dr || 0, talk: +st.talk || 0, retell: +st.retell || 0 } }; });
   DB.miss = miss && typeof miss === "object" && !Array.isArray(miss) ? miss : {};
   DB.set = { minutes: 30, autoSpeak: true };
-  if (set && typeof set === "object") { if ([5, 15, 30, 60].indexOf(set.minutes) >= 0) DB.set.minutes = set.minutes; if (set.autoSpeak === false) DB.set.autoSpeak = false; }
+  if (set && typeof set === "object") { if ([5, 15, 30, 60].indexOf(set.minutes) >= 0) DB.set.minutes = set.minutes; if (set.autoSpeak === false) DB.set.autoSpeak = false; if (set.share === false) DB.set.share = false; if (typeof set.nick === "string") DB.set.nick = set.nick.slice(0, 20); }
   return migrate();
 }
 function dbSave(name) {

@@ -474,6 +474,56 @@ def s18(b):
     shot(pg, "p43_nat")
     t.check("s18 오류 없음", not real(errs), errs); ctx.close()
 
+def s19(b):
+    print("\n== s19 함께 보기: 서로의 이번 주 현황 ==")
+    fake = FakeGoogle()
+    done = "window.__ec && window.__ec.AUTH.uid && !window.__ec.SYNC.busy && window.__ec.SYNC.last > 0"
+    def bd(uid): d = fake.docs.get("board/" + uid); return json.loads(d["fields"]["j"]["stringValue"]) if d else None
+    def sync(pg): ev(pg, "(function(){ window.__ec.SYNC.last = 0; syncNow(); })()"); wait_js(pg, done)
+    O, po, eo = page(b, init=FB_INIT, fake=fake); set_key(po)
+    click(po, "tab", "home"); t.check("s19 로그인 전에는 함께 보기 카드가 없음", "함께 하는 사람들" not in text(po))
+    ev(po, "(function(){ const r = dayRec(); r.sec = 600; r.said = 5; r.st = { phr: 99, dr: 99, talk: 99, retell: 99 }; daySave(); })()")
+    click(po, "tab", "set"); click(po, "login"); wait_js(po, done)
+    m = bd("U1001")
+    t.check("s19 로그인하면 기본으로 공유: 이번 주 현황만 올라감", m and m["dn"] == 1 and m["mn"] == 10 and m["td"] == 2 and m["n"] == "" and sorted(m.keys()) == ["d", "dn", "mn", "n", "st", "td", "w"], m)
+    click(po, "tab", "set"); t.check("s19 설정에 함께 보기: 체크된 상태", po.is_checked("#ecShare") and "함께 보기에 보일 이름" in text(po))
+    po.fill("#ecNick", "  <b>요셉</b> 목자  "); click(po, "nickSave"); po.wait_for_timeout(600); wait_js(po, done + ""); sync(po)
+    t.check("s19 이름을 정하면 그 이름으로 올라감 (꺾쇠는 뺌)", bd("U1001")["n"] == "b요셉/b 목자" and "저장했습니다" in text(po), bd("U1001"))
+    click(po, "tab", "home")
+    t.check("s19 홈에 함께 하는 사람들: 나 한 명", "이번 주 1명이 함께 연습하고 있습니다." in text(po) and "(나)" in text(po) and po.locator(".ec-bd.me").count() == 1 and "루틴 1일 · 10분" in text(po), text(po)[:500])
+    # 두 번째 사람: 빈 기기로 로그인
+    fake.account = {"sub": "2002", "email": "friend@example.com", "name": "다른 사람"}
+    F, pf, ef = page(b, init=FB_INIT, fake=fake); click(pf, "tab", "set"); click(pf, "login"); wait_js(pf, done)
+    click(pf, "tab", "home")
+    t.check("s19 다른 사람에게 주인의 현황이 보임 (이름·루틴 일수·시간만)", "b요셉/b 목자" in text(pf) and "루틴 1일 · 10분" in text(pf) and pf.locator(".ec-bd").count() == 1 and "이번 주 시작 전: 1명" in text(pf) and "pastor@example.com" not in text(pf) and "강동윤" not in pf.locator("#ecMain").inner_text(), text(pf)[:500])
+    t.check("s19 두 번째 사람도 자기 자리만 생김 (주인 것은 그대로)", bd("U2002") and bd("U2002")["mn"] == 0 and bd("U1001")["n"] == "b요셉/b 목자" and bd("U1001")["mn"] == 10, (bd("U2002"), bd("U1001")))
+    t.check("s19 이름을 안 정한 사람에게 이름 정하기 단추", "함께 보기에 보일 이름 정하기" in text(pf))
+    r = ev(pf, "fsCall('PATCH', FS_URL() + '/board/U1001', { fields: { j: { stringValue: '{}' } } }).then(r => r.status)")
+    t.check("s19 남의 자리는 고칠 수 없음", r == 403 and bd("U1001")["mn"] == 10, r)
+    ev(pf, "(function(){ const r = dayRec(); r.sec = 1500; r.st.phr = 1; daySave(); DB.set.nick = '한나'; dbSave('set'); })()"); sync(pf); sync(po)
+    click(po, "tab", "set"); click(po, "tab", "home")
+    t.check("s19 주인에게도 두 사람이 보이고, 많이 한 순서", "이번 주 2명이 함께 연습하고 있습니다." in text(po) and po.locator(".ec-bd").count() == 2 and "한나" in po.locator(".ec-bd").nth(1).inner_text() and "25분" in text(po) and "· 한나" in text(po), text(po)[:500])
+    # 공유 끄기
+    click(pf, "tab", "set"); pf.uncheck("#ecShare"); pf.wait_for_timeout(700); sync(pf)
+    t.check("s19 체크를 풀면 올려 둔 내 현황이 비워짐", bd("U2002") == {"off": 1} and ev(pf, "DB.set.share") is False, bd("U2002"))
+    click(pf, "tab", "home"); t.check("s19 끈 사람에게는 다른 사람 현황도 안 보임", "함께 보기를 꺼 두었습니다" in text(pf) and pf.locator(".ec-bd").count() == 0)
+    sync(po); click(po, "tab", "set"); click(po, "tab", "home")
+    t.check("s19 다른 사람 화면에서도 사라짐", po.locator(".ec-bd").count() == 1 and "한나" not in text(po))
+    pf.reload(); pf.wait_for_function("window.__ec"); wait_js(pf, done); click(pf, "tab", "set")
+    t.check("s19 다시 열어도 꺼진 채", not pf.is_checked("#ecShare") and bd("U2002") == {"off": 1})
+    pf.check("#ecShare"); pf.wait_for_timeout(700); sync(pf)
+    t.check("s19 다시 켜면 다시 올라가고 이름도 그대로", bd("U2002").get("n") == "한나" and bd("U2002").get("mn") == 25, bd("U2002"))
+    # 새 기기에서 이름 이어받기 + 규칙이 아직 없을 때
+    fake.account = {"sub": "1001", "email": "pastor@example.com", "name": "강동윤"}
+    N, pn, en = page(b, init=FB_INIT, fake=fake); click(pn, "tab", "set"); click(pn, "login"); wait_js(pn, done)
+    t.check("s19 새 기기: 전에 정한 이름을 가져오고 지우지 않음", ev(pn, "DB.set.nick") == "b요셉/b 목자" and bd("U1001")["n"] == "b요셉/b 목자", bd("U1001"))
+    fake.board_deny = True; n_log = ev(po, "DB.log.length"); sync(po); click(po, "tab", "set"); click(po, "tab", "home")
+    t.check("s19 규칙이 없어 막혀도 기록 맞추기는 멈추지 않음", ev(po, "window.__ec.SYNC.err") == "" and "지금은 불러오지 못했습니다" in text(po) and ev(po, "DB.log.length") == n_log)
+    t.check("s19 모든 단추에 동작이 연결됨", handlers_ok(po) == [] and handlers_ok(pf) == [])
+    shot(po, "p45_board")
+    t.check("s19 오류 없음", not real(eo) and not real(ef) and not real(en), (real(eo), real(ef), real(en)))
+    O.close(); F.close(); N.close()
+
 def s14(b):
     print("\n== s14 채점 중 안내 ==")
     ctx, pg, errs = page(b); set_key(pg)

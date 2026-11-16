@@ -266,12 +266,38 @@ function syncShared() {
     return fsPatch(path, { j: { stringValue: JSON.stringify(out) } }, doc.exists ? doc : null).then(() => true, e => { if (/403|PERMISSION|권한/i.test(String(e && (e.status || e.message) || e))) store.set("ec_sharedeny_" + uid, "1"); return false; });
   }).catch(() => false);
 }
+/* ---------- 함께 보기: 이번 주 학습 현황만 서로 본다 (board/{uid}, 읽기는 로그인한 사람, 쓰기는 본인) ---------- */
+const BOARD = { list: [], at: 0, err: "" };
+try { const b = JSON.parse(store.get("ec_boardlist") || "[]"); if (Array.isArray(b)) BOARD.list = b; } catch (e) {}
+const boardOn = () => DB.set.share !== false;
+function boardMine() { const W = weekView(), d = today(); return { n: String(DB.set.nick || "").slice(0, 20), w: weekNo(d), dn: W.done, mn: W.min, st: streak(), td: dayDone(d) ? 2 : (W.days.some(x => x.today && x.min > 0) ? 1 : 0), d: d }; }
+function boardClean(o, id) { const num = v => Math.max(0, Math.min(100000, Math.round(+v || 0))); return { id: id, n: String(o.n || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 20), w: num(o.w), dn: Math.min(7, num(o.dn)), mn: num(o.mn), st: num(o.st), td: num(o.td), d: num(o.d) }; }
+function syncBoard() {
+  const uid = AUTH.uid, path = "board/" + uid, flag = "ec_board_" + uid;
+  if (!boardOn()) {                                   /* 공유를 끄면 올려 둔 것을 비우고, 다른 사람 것도 받지 않는다 */
+    BOARD.list = []; store.del("ec_boardlist");
+    if (store.get(flag) === "off") return Promise.resolve(false);
+    return fsGet(path).then(doc => doc.exists ? fsPatch(path, { j: { stringValue: JSON.stringify({ off: 1 }) } }, doc) : null).then(() => { store.set(flag, "off"); return true; }).catch(() => false);
+  }
+  return fsCall("GET", FS_URL() + "/board?pageSize=300").then(r => {
+    if (!r.ok) throw fsFail(r, "함께 보기 읽기");
+    if (AUTH.uid !== uid) return false;
+    const docs = (r.j && r.j.documents) || [], list = [];
+    docs.forEach(d => { const o = jparse(d.fields && d.fields.j && d.fields.j.stringValue); if (o && !o.off) list.push(boardClean(o, String(d.name).split("/").pop())); });
+    const old = list.filter(x => x.id === uid)[0];
+    if (!DB.set.nick && old && old.n) { DB.set.nick = old.n; dbSave("set"); }      /* 새 기기: 전에 정한 이름을 가져온다 */
+    const me = boardMine(), js = JSON.stringify(me);
+    const fin = () => { BOARD.list = list.filter(x => x.id !== uid).concat([boardClean(me, uid)]); BOARD.at = Date.now(); BOARD.err = ""; store.set("ec_boardlist", JSON.stringify(BOARD.list)); return true; };
+    if (store.get(flag) === js && old) return fin();
+    return fsGet(path).then(doc => fsPatch(path, { j: { stringValue: js } }, doc.exists ? doc : null)).then(() => { store.set(flag, js); return fin(); });
+  }).catch(e => { BOARD.err = String(e && e.message || e).slice(0, 160); return false; });
+}
 function syncNow() {
   if (!fbReady() || !AUTH.uid || SYNC.ask) return Promise.resolve(false);
   if (SYNC.busy) { SYNC.again = true; return Promise.resolve(false); }
   clearTimeout(SYNC.timer); SYNC.busy = true; SYNC.err = ""; paint();
   const uid = AUTH.uid;
-  return pullLog().then(pushLog).then(() => syncState(0)).then(() => syncKeys()).then(() => syncShared()).then(() => { SYNC.last = Date.now(); SYNC.err = ""; }, e => { if (AUTH.uid === uid) SYNC.err = String(e && e.message || e).slice(0, 220); })
+  return pullLog().then(pushLog).then(() => syncState(0)).then(() => syncKeys()).then(() => syncShared()).then(() => syncBoard()).then(() => { SYNC.last = Date.now(); SYNC.err = ""; }, e => { if (AUTH.uid === uid) SYNC.err = String(e && e.message || e).slice(0, 220); })
     .then(() => { SYNC.busy = false; syncSave(); paint(); if (SYNC.again) { SYNC.again = false; return syncNow(); } return !SYNC.err; });
 }
 function syncFull() { SYNC.st = ""; SYNC.un = DB.log.map(r => r.id); syncSave(); return syncNow(); }   /* 처음부터 다시 맞춘다 (모두 받고 모두 올림) */
