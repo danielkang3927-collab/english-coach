@@ -433,6 +433,42 @@ def s18(b):
     t.check("s18 연결이 안 되면 멈추고 알림 (계속 기다리지 않음)", ev(pg, "!!window.__ec.U.ask.err") and has(pg, "askGo"))
     ev(pg, "(function(){ window.__mock.plan = []; gReset(); })()"); click(pg, "askClear")
     t.check("s18 지우기", ev(pg, "window.__ec.U.ask") is None and pg.input_value("#ecAskEn") == "")
+    # 정한 횟수를 채우면 대화가 끝난다
+    ev(pg, "(function(){ DB.set.minutes = 30; dbSave('set'); const r = dayRec(); r.st.talk = 0; daySave(); window.__ec.A = null; window.__ec.go('home'); })()")
+    click(pg, "tab", "train"); pg.select_option("#ecScene", "0"); click(pg, "start", "talk")
+    for i in range(3):
+        ev(pg, "(function(){ var A=window.__ec.A; A.pend=window.__fakeClip(3); talkSend(); })()"); pg.wait_for_function("window.__ec.A.turns.length === %d" % (i + 1), timeout=15000)
+    t.check("s18 세 번까지는 다음 질문과 녹음 단추가 나옴", has(pg, "rec") and not has(pg, "tMore") and "오늘 대화 3 / 4번" in text(pg))
+    ev(pg, "(function(){ var A=window.__ec.A; A.pend=window.__fakeClip(3); talkSend(); })()"); pg.wait_for_function("window.__ec.A.turns.length === 4", timeout=15000)
+    t.check("s18 네 번째 대답 뒤에는 녹음 단추 없이 끝내는 안내 (고침은 그대로 보임)", "오늘 대화 4번을 채웠습니다" in text(pg) and not has(pg, "rec") and has(pg, "tEnd") and has(pg, "tMore") and has(pg, "tNext") and pg.locator('.ec-nat').count() >= 1, text(pg)[-300:])
+    click(pg, "tab", "home"); click(pg, "tab", "train")
+    click(pg, "tMore"); t.check("s18 더 이야기하기를 누르면 이어짐", has(pg, "rec") and not has(pg, "tMore"))
+    ev(pg, "(function(){ var A=window.__ec.A; A.pend=window.__fakeClip(3); talkSend(); })()"); pg.wait_for_function("window.__ec.A.turns.length === 5", timeout=15000)
+    t.check("s18 더 하기로 한 뒤에는 다시 끊지 않음", has(pg, "rec") and "채웠습니다" not in text(pg))
+    click(pg, "tEnd"); t.check("s18 대화 마치기 → 마침 화면", "대화를 마쳤습니다" in text(pg) and "대답 5번" in text(pg))
+    click(pg, "quit", "yes"); click(pg, "start", "talk")
+    ev(pg, "(function(){ var A=window.__ec.A; A.pend=window.__fakeClip(3); talkSend(); })()"); pg.wait_for_function("window.__ec.A.turns.length === 1", timeout=15000)
+    t.check("s18 오늘 몫을 채운 뒤 새로 시작한 대화는 한 번 만에 끊지 않음", has(pg, "rec") and "채웠습니다" not in text(pg))
+    ev(pg, "(function(){ const r = dayRec(); r.st.talk = 3; r.st.retell = 0; daySave(); window.__ec.A = null; window.__ec.go('train'); })()"); click(pg, "start", "talk")
+    ev(pg, "(function(){ var A=window.__ec.A; A.pend=window.__fakeClip(3); talkSend(); })()"); pg.wait_for_function("window.__ec.A.turns.length === 1", timeout=15000)
+    click(pg, "tNext"); t.check("s18 「다음」을 누르면 다음 단계로", ev(pg, "window.__ec.A && window.__ec.A.type") in ("batch", "retell") and ev(pg, "window.__ec.A.type") != "talk", ev(pg, "window.__ec.A && window.__ec.A.type"))
+    ev(pg, "(function(){ window.__ec.A = null; window.__ec.go('home'); })()")
+    # 홈: 나의 학습 현황 (이번 주)
+    ev(pg, """(function(){ const d = today(), mon = weekNo(d) * 7 + 4; DB.set.minutes = 5; dbSave('set'); DB.day = {}; DB.log = DB.log.filter(r => r.k !== 'phr' && r.k !== 'dr' && r.k !== 'talk');
+      DB.day[d] = { sec: 200, said: 4, st: { phr: 3, dr: 0, talk: 0, retell: 0 } };
+      DB.day[d - 7] = { sec: 60, said: 1, st: { phr: 1, dr: 0, talk: 0, retell: 0 } };
+      DB.log.push({ id: 'w1', t: now(), k: 'phr', n: 3, ok: 2, it: [] }); DB.log.push({ id: 'w2', t: now() - 8 * 86400000, k: 'phr', n: 5, ok: 5, it: [] });
+      daySave(); dbSave('log'); window.__ec.A = null; window.__ec.go('home'); })()""")
+    w = ev(pg, "weekView()")
+    t.check("s18 이번 주 현황 계산: 오늘 3분, 완료 0일, 맞힌 2/3 (지난주 기록은 빼고)", w["min"] == 3 and w["done"] == 0 and w["ok"] == 2 and w["n"] == 3 and len(w["days"]) == 7 and sum(1 for x in w["days"] if x["today"]) == 1, w)
+    t.check("s18 홈 맨 위에 나의 학습 현황: 요일 일곱 칸과 남은 단계 안내", pg.locator(".ec-wd").count() == 7 and pg.locator(".ec-wd.now").count() == 1 and pg.locator(".ec-wd.done").count() == 0 and "오늘 3분 했습니다. 루틴 완료까지 2단계 남았습니다." in text(pg) and "2 / 3" in text(pg) and "나의 학습 현황" in text(pg), text(pg)[:300])
+    ev(pg, "(function(){ const r = dayRec(); r.st.dr = 2; r.st.talk = 1; daySave(); window.__ec.render(); })()")
+    t.check("s18 루틴을 마치면 오늘 칸에 ✓와 완료 안내", pg.locator(".ec-wd.done.now").count() == 1 and "오늘 루틴을 마쳤습니다. 이번 주 1일째 완료입니다." in text(pg) and "✓" in pg.locator(".ec-wd.now").inner_text())
+    t.check("s18 지난주와 견줌이 보임", "지난주 같은 요일까지" in text(pg))
+    shot(pg, "p44_week")
+    ev(pg, "(function(){ DB.day = {}; daySave(); window.__ec.render(); })()")
+    t.check("s18 기록이 없어도 깨지지 않고 첫 칸 안내", "첫 칸이 채워집니다" in text(pg) and pg.locator(".ec-wd").count() == 7)
+    shot(pg, "p44_week")
     t.check("s18 실전 미션에 영상에서 온 것이 있음", ev(pg, "D.MISSIONS.some(m => m.id === 'm_news') && D.SCENES.length === 9 && D.SCENES[today() % 6].id !== 'today'"))
     t.check("s18 모든 단추에 동작이 연결됨", handlers_ok(pg) == [], handlers_ok(pg))
     shot(pg, "p43_nat")
@@ -574,7 +610,7 @@ def s3(b):
     t.check("s3 대화 4번 채움", ev(pg, "window.__ec.dayRec().st.talk") == 4 and "오늘 대화 4 / 4번" in text(pg))
     # 다른 화면에 다녀와도 그대로
     click(pg, "tab", "home"); t.check("s3 진행 중 표시 점", pg.locator(".ec-dot").count() == 1)
-    click(pg, "tab", "train"); t.check("s3 훈련으로 돌아오면 대화 그대로", ev(pg, "window.__ec.A.turns.length") == 4 and pg.locator(".ec-bub").count() == 1)
+    click(pg, "tab", "train"); t.check("s3 훈련으로 돌아오면 대화 그대로", ev(pg, "window.__ec.A.turns.length") == 4 and pg.locator(".ec-bub").count() == 0 and "오늘 대화 4번을 채웠습니다" in text(pg))
     click(pg, "tEnd")
     t.check("s3 대화 마치기 요약", phase(pg) == "end" and "대답 4번" in text(pg) and "3인칭 단수·수일치 4번" in text(pg))
     shot(pg, "p10_talk_end")
@@ -1223,6 +1259,7 @@ def s10(b):
     ev(pg, "window.__mock.plan=[]"); click(pg, "tResend"); pg.wait_for_function("window.__ec.A.turns.length === 6", timeout=15000)
     # 녹음 중에 다른 화면으로 나감 → 거기까지 담아 보냄
     ev(pg, "(function(){ var n=0; Object.defineProperty(navigator,'wakeLock',{configurable:true,value:{request:function(){ window.__wl=(window.__wl||0)+1; return Promise.resolve({release:function(){ window.__wlr=(window.__wlr||0)+1; return Promise.resolve(); }, addEventListener:function(){}}); }}}); })()")
+    if has(pg, "tMore"): click(pg, "tMore")   # 오늘 횟수를 채워 끝내는 안내가 나왔으면 더 이야기하기
     click(pg, "rec"); pg.wait_for_selector(".ec-btn.rec.on"); pg.wait_for_timeout(1600)
     t.check("s10 녹음 중에는 화면 꺼짐 방지를 요청", ev(pg, "window.__wl") == 1)
     ev(pg, hide); pg.wait_for_timeout(200)

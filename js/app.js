@@ -1,7 +1,7 @@
 "use strict";
 /* 영어 말하기 코치 — 화면과 훈련 흐름. 기준은 SPEC.md. */
 const U = { tab: "home", scene: 0, f: { script: "", phEn: "", phKo: "", askEn: "", bk: "", gkey: "" }, remember: true, tagSel: null, ordSel: null, showZero: false,
-  phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0, flash: null, smsg: null, diag: null, back: null, ask: null, shortMsg: null, natOpen: false, natN: 5, natMsg: null, natBusy: null };
+  phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0, flash: null, smsg: null, diag: null, back: null, ask: null, mic: "", shortMsg: null, natOpen: false, natN: 5, natMsg: null, natBusy: null };
 let A = null;                                     /* 진행 중인 훈련 */
 let SAY = [], KEEP = [];                                     /* 「듣기」 버튼이 읽을 글 */
 const REC = { on: false, busy: false, t0: 0, timer: null, max: 0, done: null };
@@ -105,12 +105,28 @@ function weekChange() {
   const f = (L, i) => avg(L.map(r => r.m[i])), pp = L => avg(L.map(r => r.m[6] >= 5 ? r.m[2] / (r.m[6] / 60) : null));
   return { wpm: [f(prev, 5), f(cur, 5)], ppm: [pp(prev), pp(cur)], st: [f(prev, 4), f(cur, 4)] };
 }
+function weekHtml() {
+  const W = weekView(), goal = DB.set.minutes, st = streak(), r = dayRec(), tdone = dayDone(today()), ns = nextStep();
+  let left = 0; const p = PLAN(); ["phr", "dr", "talk", "retell"].forEach(k => { if (p[k] > 0 && r.st[k] < p[k]) left++; });
+  let cheer;
+  if (tdone) cheer = "오늘 루틴을 마쳤습니다. 이번 주 " + W.done + "일째 완료입니다." + (st >= 2 ? " 연속 " + st + "일째 이어 가고 있습니다." : "");
+  else if (r.sec >= 60 || r.said > 0) cheer = "오늘 " + Math.floor(r.sec / 60) + "분 했습니다. 루틴 완료까지 " + left + "단계 남았습니다.";
+  else if (st > 0) cheer = "연속 " + st + "일째입니다. 오늘 한 단계만 해도 이어집니다.";
+  else cheer = W.act ? "이번 주 " + W.act + "일 연습했습니다. 오늘 한 단계로 다시 이어 가 보세요." : "오늘 한 단계만 해도 이번 주 첫 칸이 채워집니다.";
+  let h = '<div class="ec-msg ec-cheer">' + cheer + '</div>';
+  h += '<div class="ec-wk">' + W.days.map(x => '<div class="ec-wd' + (x.done ? " done" : "") + (x.today ? " now" : "") + (x.future ? " later" : "") + '"><span>' + x.name + '</span><b>' + (x.future ? "·" : x.done ? "✓" : x.min > 0 ? x.min : "–") + '</b><small>' + (x.future ? "" : x.done ? x.min + "분" : x.min > 0 ? "분" : "") + '</small></div>').join("") + '</div>';
+  h += '<div class="ec-scores">' + statCell("루틴 완료", W.done + " / " + W.passed + "일") + statCell("이번 주", hm(W.min * 60)) + statCell("맞힌 문장", W.n ? W.ok + " / " + W.n : "–") + statCell("대화 대답", W.turns + "번") + '</div>';
+  const diff = W.min - W.prevMin;
+  h += '<p class="ec-sub">✓는 그날 루틴을 모두 마친 날, 숫자는 연습한 분입니다. 말한 문장 ' + W.said + '개' + (W.prevMin || W.min ? ' · 지난주 같은 요일까지 ' + W.prevMin + '분, 이번 주 ' + W.min + '분 <span class="' + (diff >= 0 ? "s-good" : "s-bad") + '">(' + (diff >= 0 ? "+" : "") + diff + '분)</span>' : "") + '</p>';
+  return h;
+}
 function drawHome() {
   const d = today(), r = dayRec(d), p = PLAN(), goal = DB.set.minutes, min = r.sec / 60, ts = tests(), last = ts[ts.length - 1], prev = ts[ts.length - 2];
   let h = "";
   if (!G.key) h += card("시작하기", '<p>선생님(Gemini)이 녹음을 들으려면 이용 키가 한 번 필요합니다.</p>' + btn("설정 열기", "tab", "set"));
   if (fbReady() && SYNC.ask) h += card("계정 확인이 필요합니다", '<p>이 기기의 기록을 지금 로그인한 계정에 합칠지 정해 주세요.</p>' + btn("설정에서 정하기", "tab", "set"));
   else if (fbReady() && !AUTH.uid) h += card("기기를 바꿔도 기록이 이어지게", '<p class="ec-sub">구글로 로그인하면 휴대폰·아이패드·노트북에서 같은 기록을 씁니다. 기록은 합치기만 하고 지우지 않습니다.</p>' + btn("구글로 로그인", "login"));
+  h += card("나의 학습 현황", weekHtml());
   /* 등급과 목표 */
   let lv = "";
   if (last) {
@@ -369,7 +385,7 @@ function startTalk(idx) {
   if (!needKey()) return;
   const sc = D.SCENES[idx];
   if (sc.script && !U.f.script.trim()) { go("train"); setMsg("읽을 영어 원고를 먼저 넣어 주세요.", true); return; }
-  A = { type: "talk", title: sc.name, scene: idx, script: sc.script ? U.f.script.trim().slice(0, 3000) : "", turns: [], q: openerFor(sc), phase: "idle", pend: null, allOpen: false };
+  A = { type: "talk", title: sc.name, scene: idx, script: sc.script ? U.f.script.trim().slice(0, 3000) : "", turns: [], q: openerFor(sc), phase: "idle", pend: null, allOpen: false, more: stepDone("talk") };   /* 오늘 몫을 이미 채우고 다시 시작했으면 끊지 않는다 */
   U.talkN++; go("train");
   if (DB.set.autoSpeak) speak(A.q, "teacher");
 }
@@ -400,7 +416,8 @@ function talkSend() {
     const day = dayRec(); day.st.talk++; day.said += sentences(c.transcript); daySave();
     me.turns.push({ q: me.q, r: c, m: p.m, words, tags, id: rec.id, model, open: false });
     me.q = c.reply || "Thank you. Please tell me more."; me.pend = null; me.phase = "idle";
-    if (arrived(me.title + ": 선생님 답이 왔습니다.")) { const el = $("ecLast"); if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" }); if (DB.set.autoSpeak) speak(me.q, "teacher"); }
+    if (!me.more && stepDone("talk")) me.goal = true;            /* 오늘 정한 횟수를 채우면 여기서 끝낸다 */
+    if (arrived(me.title + ": 선생님 답이 왔습니다.")) { const el = $("ecLast"); if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" }); if (DB.set.autoSpeak && !me.goal) speak(me.q, "teacher"); }
   }, (why, kind) => { if (A === me) failed(me, why, kind); });
 }
 function turnOpen(t, i, last) {
@@ -435,6 +452,11 @@ function drawTalk() {
     h += (last || A.allOpen || t.open) ? turnOpen(t, i, last)
       : '<button class="ec-fold" data-act="tFold" data-arg="' + i + '"><span>' + (i + 1) + '. ' + esc(short(t.r.transcript, 60)) + '</span><b class="' + sCls(avgOf(t.r.sc)) + '">' + r0(avgOf(t.r.sc)) + '</b></button>';
   });
+  if (A.goal && !A.more && A.phase === "idle") {
+    const ns = nextStep();
+    return h + card("오늘 대화 " + PLAN().talk + "번을 채웠습니다", '<p class="ec-sub">위에서 방금 대답의 고침을 확인하고 마치면 됩니다. 정한 횟수를 채웠으니 여기서 끝냅니다.</p><div class="ec-row">' +
+      btn("대화 마치기", "tEnd") + (ns && ns !== "talk" ? btn("다음: " + STEP_NAME[ns], "tNext", null, "ghost") : "") + '</div><div class="ec-row end">' + btn("더 이야기하기", "tMore", null, "ghost small") + '</div>');
+  }
   h += '<div class="ec-bub"><small>선생님</small>' + esc(A.q) + '<div>' + say(A.q, "다시 듣기", "teacher") + '</div></div>';
   if (sc.script) h += '<div class="ec-task en ec-script">' + esc(A.script) + '</div>';
   let b = "";
@@ -790,6 +812,11 @@ function drawSettings() {
   if (order.length) g += '<label for="ecGModelPick">먼저 쓸 모델</label><select id="ecGModelPick" data-chg="gmodel"><option value=""' + (G.model ? "" : " selected") + '>자동 (가장 좋은 모델부터)</option>' + G.chain.map(n => '<option value="' + esc(n) + '"' + (n === G.model ? " selected" : "") + '>' + esc(n) + '</option>').join("") + '</select>' +
     '<div class="ec-sub ec-gap">쓰는 순서 (막히면 자동으로 다음 모델)</div><ol class="ec-ol">' + order.map(n => '<li>' + esc(n) + ' <span class="ec-sub">— ' + gStateOf(n) + '</span></li>').join("") + '</ol><div class="ec-row">' + btn("한도 기록 지우고 다시 시도", "gReset", null, "ghost small") + '</div>';
   let h = card("선생님 연결 (Gemini)", g);
+  h += card("마이크를 매번 묻지 않게", '<p class="ec-sub">마이크 허용을 기억하는 것은 앱이 아니라 기기의 브라우저입니다. 아래처럼 한 번 「허용」으로 바꿔 두면 이 기기에서는 다시 묻지 않습니다.</p>' +
+    '<p><b>이 기기의 지금 상태:</b> ' + (U.mic === "granted" ? '<span class="s-good">항상 허용됨</span>' : U.mic === "denied" ? '<span class="s-bad">막혀 있음</span>' : U.mic === "prompt" ? "켤 때마다 물어봄" : "알 수 없음 (이 브라우저는 알려 주지 않습니다)") + '</p>' +
+    '<p class="ec-sub"><b>아이폰·아이패드 (Safari)</b><br>① 이 앱을 Safari로 연 채 주소창의 「가가」 또는 「⋯」 단추 → 「웹사이트 설정」 → 마이크 → 「허용」<br>② 또는 설정 앱 → 앱 → Safari → 마이크 → 「허용」 (모든 사이트에 적용)</p>' +
+    '<p class="ec-sub"><b>크롬 (안드로이드·컴퓨터)</b><br>주소창 왼쪽 단추 → 「사이트 설정」 → 마이크 → 「허용」</p>' +
+    '<p class="ec-sub">홈 화면에 추가한 앱은 Safari와 따로 물을 수 있습니다. 그때는 ②번을 해 주세요.</p>');
   h += card("하루 목표", '<div class="ec-seg">' + [5, 15, 30, 60].map(m => '<button data-act="minutes" data-arg="' + m + '" aria-pressed="' + (DB.set.minutes === m) + '">' + m + '분</button>').join("") + '</div><p class="ec-sub">' + DB.set.minutes + '분이면 하루에 구문 ' + PLAN().phr + '개, 훈련 ' + PLAN().dr + '문장, 대화 ' + PLAN().talk + '번' + (PLAN().retell ? ', 다시 말하기 ' + PLAN().retell + '번' : '') + '입니다.' + (DB.set.minutes === 5 ? ' 짧게 매일 하는 과정입니다. 하루 목표는 이 기기에만 적용되어 사람마다 다르게 고를 수 있습니다.' : '') + ' 주 6일 기준 한 단계에 ' + planMonths(200) + '.</p>');
   h += card("소리", '<label class="ec-check"><input type="checkbox" id="ecAuto" data-chg="auto"' + (DB.set.autoSpeak ? " checked" : "") + '> 선생님 말과 정답을 자동으로 읽어 주기</label><p class="ec-sub">' + (XI.key && XI.voice ? "지금 읽어 주는 목소리: ElevenLabs " + esc(XI.name) + ". 막히면 기기 목소리로 읽습니다." : "읽어 주는 목소리는 기기에 들어 있는 영어 음성입니다.") + '</p>' + btn("목소리 들어 보기", "voice", null, "ghost small") + drawXi());
   h += drawSyncCard();
@@ -837,6 +864,8 @@ const ACT = {
   tFold: a => { const t = A.turns[+a]; if (t) { t.open = !t.open; if (A.allOpen) { A.allOpen = false; A.turns.forEach((x, i) => { x.open = i !== +a; }); } render(); } },
   tAll: () => { A.allOpen = !A.allOpen; if (!A.allOpen) A.turns.forEach(t => { t.open = false; }); render(); },
   tSave: a => { const p = String(a).split("."), t = A.turns[+p[0]], ph = t && t.r.phrases[+p[1]]; if (ph) { addMyPhrase(ph.en, ph.ko); syncSoon(); render(); } },
+  tMore: () => { if (!A || A.type !== "talk") return; A.more = true; render(); if (DB.set.autoSpeak) speak(A.q, "teacher"); },
+  tNext: () => { if (!A || A.type !== "talk" || REC.on) return; const ns = nextStep(); A = null; pendSave(); ACT.start(ns || "retell"); },
   tEnd: () => { A.phase = "end"; render(); window.scrollTo(0, 0); },
   /* 다시 말하기 */
   rHide: () => { A.pend = null; A.phase = "hidden"; setMsg(""); speakStop(); render(); window.scrollTo(0, 0); },
@@ -1027,3 +1056,14 @@ if (BACK) BACK.then(() => { U.smsg = { text: "로그인했습니다. 기록을 �
 else authResume();
 pendRestore();
 window.__ec = { U, DB, G, REC, ACT, CHG, Clock, AUTH, SYNC, FB, get A() { return A; }, set A(v) { A = v; }, render, go, tick, beat, dbLoad, dbSave, logAdd, srsMark, tagStats, focusTags, pickPhrases, pickDrills, testScore, levelOf, backupMake, backupMerge, coachReport, analyze, sysFor, profileText, dayRec, today, streak, MIGRATED };
+/* 마이크 허용 상태(브라우저가 알려 줄 때만). 바뀌면 설정 화면에 바로 보이게. */
+function micWatch() {
+  try {
+    if (!navigator.permissions || !navigator.permissions.query) return;
+    navigator.permissions.query({ name: "microphone" }).then(st => {
+      const set = () => { U.mic = st.state; if (U.tab === "set" && !REC.on) render(); };
+      U.mic = st.state; st.onchange = set;
+    }).catch(() => {});
+  } catch (e) {}
+}
+micWatch();

@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="ec-build" content="24">
+<meta name="ec-build" content="25">
 <title>영어 말하기 코치</title>
-<link rel="icon" type="image/png" href="icons/icon-192.png?v=24">
-<link rel="apple-touch-icon" href="icons/icon-180.png?v=24">
-<link rel="manifest" href="manifest.json?v=24">
+<link rel="icon" type="image/png" href="icons/icon-192.png?v=25">
+<link rel="apple-touch-icon" href="icons/icon-180.png?v=25">
+<link rel="manifest" href="manifest.json?v=25">
 <meta name="apple-mobile-web-app-title" content="영어 코치">
 <style>
 :root{
@@ -119,6 +119,12 @@ label{display:block;font-size:14px;color:var(--sub);margin:10px 0 4px}
 .ec-steps{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0 0}
 .ec-step{display:flex;flex-direction:column;gap:2px;text-align:left;padding:10px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink);font:inherit;font-size:14px}
 .ec-step b{font-size:15px;color:var(--sub)}
+.ec-wk{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin:10px 0 4px}
+.ec-wd{display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 0 5px;border:1px solid var(--line);border-radius:10px;font-size:12px;color:var(--sub);min-height:62px}
+.ec-wd b{font-size:17px;color:var(--ink)} .ec-wd small{font-size:11px;min-height:13px}
+.ec-wd.done{border-color:var(--good);background:var(--chip)} .ec-wd.done b{color:var(--good)}
+.ec-wd.now{border-width:2px;border-color:var(--brand)} .ec-wd.later{opacity:.45}
+.ec-msg.ec-cheer{margin-top:0;font-weight:600}
 .ec-step.done{border-color:var(--good)} .ec-step.done b{color:var(--good)}
 .ec-miss{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;padding:10px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink);font:inherit;font-size:15px;margin-top:8px}
 .ec-miss i{flex:none;width:22px;height:22px;border:2px solid var(--sub);border-radius:6px;font-style:normal;text-align:center;line-height:18px;color:var(--good);font-weight:700}
@@ -170,9 +176,9 @@ table.ec-t th{color:var(--sub);font-weight:400;font-size:13px}
   <button data-act="bottom" aria-label="맨 아래로">▼</button>
 </div>
 <nav class="ec-nav" id="ecNav" aria-label="화면 이동"></nav>
-<script src="js/data.js?v=24"></script>
-<script src="js/core.js?v=24"></script>
-<script src="js/sync.js?v=24"></script>
-<script src="js/app.js?v=24"></script>
+<script src="js/data.js?v=25"></script>
+<script src="js/core.js?v=25"></script>
+<script src="js/sync.js?v=25"></script>
+<script src="js/app.js?v=25"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 24;
+const BUILD = 25;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -107,6 +107,17 @@ function beat(busy) {
 function daySave() { lastDaySave = now(); dbSave("day"); }
 function dayActive(d) { const r = DB.day[d]; return !!r && (r.sec >= 300 || r.st.phr + r.st.dr + r.st.talk + r.st.retell > 0); }
 function streak() { let d = today(), n = 0; if (!dayActive(d)) d--; while (dayActive(d)) { n++; d--; } return n; }
+/* 이번 주(월~일) 학습 현황: 날마다 한 시간·루틴 완료 여부, 맞힌 문장, 지난주 같은 요일까지와 견줌 */
+function dayDone(d) { const r = DB.day[d], p = PLAN(); return !!r && !!r.st && ["phr", "dr", "talk", "retell"].every(k => !(p[k] > 0) || (r.st[k] || 0) >= p[k]); }
+function weekView() {
+  const d = today(), mon = weekNo(d) * 7 + 4, days = [], names = ["월", "화", "수", "목", "금", "토", "일"];
+  let sec = 0, said = 0, done = 0, act = 0, prev = 0, ok = 0, n = 0, turns = 0;
+  for (let i = 0; i < 7; i++) { const x = mon + i, r = DB.day[x] || { sec: 0, said: 0 }, dn = x <= d && dayDone(x);
+    days.push({ d: x, name: names[i], min: Math.floor((r.sec || 0) / 60), done: dn, today: x === d, future: x > d });
+    if (x <= d) { sec += r.sec || 0; said += r.said || 0; if (dn) done++; if ((r.sec || 0) >= 60 || (r.said || 0) > 0) act++; prev += (DB.day[x - 7] || {}).sec || 0; } }
+  DB.log.forEach(r => { const x = dayNo(r.t); if (x < mon || x > d) return; if (r.k === "phr" || r.k === "dr") { ok += +r.ok || 0; n += +r.n || 0; } else if (r.k === "talk") turns++; });
+  return { days, min: Math.floor(sec / 60), prevMin: Math.floor(prev / 60), said, done, act, ok, n, turns, passed: d - mon + 1 };
+}
 function totalSec() { let s = 0; Object.keys(DB.day).forEach(d => { s += DB.day[d].sec || 0; }); return s; }
 function stepDone(step) { const r = dayRec(), p = PLAN(); return r.st[step] >= p[step]; }
 function nextStep() { const o = ["phr", "dr", "talk", "retell"]; for (let i = 0; i < o.length; i++) if (!stepDone(o[i])) return o[i]; return null; }
