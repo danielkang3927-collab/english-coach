@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 36;
+const BUILD = 37;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -39,7 +39,7 @@ function dbLoad() {
   DB.srs = srs && typeof srs === "object" && !Array.isArray(srs) ? srs : {};
   DB.my = Array.isArray(my) ? my.filter(p => p && p.id && p.en) : [];
   DB.day = {};
-  if (isMap(day)) Object.keys(day).forEach(d => { const r = day[d]; if (!isMap(r) || !/^\d+$/.test(d)) return; const st = isMap(r.st) ? r.st : {}; DB.day[d] = { sec: +r.sec || 0, said: +r.said || 0, st: { phr: +st.phr || 0, dr: +st.dr || 0, talk: +st.talk || 0, retell: +st.retell || 0 } }; });
+  if (isMap(day)) Object.keys(day).forEach(d => { const r = day[d]; if (!isMap(r) || !/^\d+$/.test(d)) return; const st = isMap(r.st) ? r.st : {}; DB.day[d] = { sec: +r.sec || 0, said: +r.said || 0, st: { phr: +st.phr || 0, dr: +st.dr || 0, talk: +st.talk || 0, retell: +st.retell || 0, rev: +st.rev || 0, lis: +st.lis || 0 } }; if (st.revNA) DB.day[d].st.revNA = 1; });
   DB.miss = miss && typeof miss === "object" && !Array.isArray(miss) ? miss : {};
   DB.set = { minutes: 30, autoSpeak: true };
   if (set && typeof set === "object") { if ([5, 15, 30, 60].indexOf(set.minutes) >= 0) DB.set.minutes = set.minutes; if (set.autoSpeak === false) DB.set.autoSpeak = false; if (set.share === false) DB.set.share = false; if (typeof set.nick === "string") DB.set.nick = set.nick.slice(0, 20); }
@@ -89,7 +89,10 @@ function migrate() {
 
 /* ---------- 하루 기록: 연습 시간, 말한 문장 수, 루틴 단계 ---------- */
 const PLAN = () => D.PLAN[DB.set.minutes] || D.PLAN[30];
-function dayRec(d) { d = d == null ? today() : d; return DB.day[d] || (DB.day[d] = { sec: 0, said: 0, st: { phr: 0, dr: 0, talk: 0, retell: 0 } }); }
+function dayRec(d) { d = d == null ? today() : d; return DB.day[d] || (DB.day[d] = { sec: 0, said: 0, st: { phr: 0, dr: 0, talk: 0, retell: 0, rev: 0, lis: 0 } }); }
+const STEPS = ["rev", "phr", "dr", "talk", "retell", "lis"];
+/* 복습·듣기 단계는 이 날부터 루틴에 들어갔다. 그 전 날들의 「루틴 완료」는 예전 네 단계로만 본다. */
+function steps2From() { let v = +store.get("ec_steps2") || 0; if (!v) { v = today(); store.set("ec_steps2", String(v)); } return v; }
 let lastAct = 0, lastBeat = 0, lastDaySave = 0;
 const IDLE_MS = 5 * 60000;
 function tick() { lastAct = now(); }               /* 화면을 건드렸다는 표시 */
@@ -105,10 +108,10 @@ function beat(busy) {
   return Math.floor(r.sec / 60) !== was;
 }
 function daySave() { lastDaySave = now(); dbSave("day"); }
-function dayActive(d) { const r = DB.day[d]; return !!r && (r.sec >= 300 || r.st.phr + r.st.dr + r.st.talk + r.st.retell > 0); }
+function dayActive(d) { const r = DB.day[d]; return !!r && (r.sec >= 300 || STEPS.reduce((s, k) => s + (r.st[k] || 0), 0) > 0); }
 function streak() { let d = today(), n = 0; if (!dayActive(d)) d--; while (dayActive(d)) { n++; d--; } return n; }
 /* 이번 주(월~일) 학습 현황: 날마다 한 시간·루틴 완료 여부, 맞힌 문장, 지난주 같은 요일까지와 견줌 */
-function dayDone(d) { const r = DB.day[d], p = PLAN(); return !!r && !!r.st && ["phr", "dr", "talk", "retell"].every(k => !(p[k] > 0) || (r.st[k] || 0) >= p[k]); }
+function dayDone(d) { const r = DB.day[d], p = PLAN(), from = steps2From(); return !!r && !!r.st && STEPS.every(k => !(p[k] > 0) || (r.st[k] || 0) >= p[k] || ((k === "rev" || k === "lis") && d < from) || (k === "rev" && r.st.revNA)); }
 function weekView() {
   const d = today(), mon = weekNo(d) * 7 + 4, days = [], names = ["월", "화", "수", "목", "금", "토", "일"];
   let sec = 0, said = 0, done = 0, act = 0, prev = 0, ok = 0, n = 0, turns = 0;
@@ -141,9 +144,11 @@ function growthPlan(score, minPerDay, daysPerWeek, months) {
 }
 function recentMinPerDay() { const d = today(); let s = 0; for (let i = 0; i < 7; i++) s += ((DB.day[d - i] || {}).sec || 0); return s / 60 / 7; }
 function totalSec() { let s = 0; Object.keys(DB.day).forEach(d => { s += DB.day[d].sec || 0; }); return s; }
-function stepDone(step) { const r = dayRec(), p = PLAN(); return r.st[step] >= p[step]; }
-function nextStep() { const o = ["phr", "dr", "talk", "retell"]; for (let i = 0; i < o.length; i++) if (!stepDone(o[i])) return o[i]; return null; }
-const STEP_NAME = { phr: "① 구문 복습", dr: "② 약점·어순 훈련", talk: "③ 선생님과 대화", retell: "④ 다시 말하기" };
+function stepDone(step) { const r = dayRec(), p = PLAN();
+  if (step === "rev" && p.rev > 0 && !(r.st.rev > 0)) { if (r.st.revNA) return true; if (!pickYest(3).length) { r.st.revNA = 1; return true; } return false; }   /* 복습할 지난 문장이 없는 날은 건너뛴다 */
+  return (r.st[step] || 0) >= (p[step] || 0); }
+function nextStep() { const o = STEPS; for (let i = 0; i < o.length; i++) if (!stepDone(o[i])) return o[i]; return null; }
+const STEP_NAME = { rev: "⓪ 지난 문장 복습", phr: "① 구문 복습", dr: "② 약점·어순 훈련", talk: "③ 선생님과 대화", retell: "④ 다시 말하기", lis: "⑤ 듣기 · 귀 뚫기" };
 
 /* ---------- 구문 간격 반복 ---------- */
 const IV = [0, 1, 3, 7, 14, 30, 60];
@@ -1060,7 +1065,7 @@ function stateMerge(o) {                            /* o의 내용을 이 기기
   Object.keys(day).forEach(d => {
     const b = day[d]; if (!isMap(b) || !/^\d+$/.test(d)) return; const had = !!DB.day[d], a = dayRec(+d), bs = isMap(b.st) ? b.st : {}, was = JSON.stringify(a);
     a.sec = Math.max(a.sec, +b.sec || 0); a.said = Math.max(a.said, +b.said || 0);
-    ["phr", "dr", "talk", "retell"].forEach(k => { a.st[k] = Math.max(a.st[k], +bs[k] || 0); });
+    STEPS.forEach(k => { a.st[k] = Math.max(a.st[k] || 0, +bs[k] || 0); }); if (bs.revNA) a.st.revNA = 1;
     if (!had || was !== JSON.stringify(a)) out.day++;
   });
   /* 미션 표시: 나중에 누른 쪽 (양수 = 했음, 음수 = 표시를 풂) */

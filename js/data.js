@@ -235,9 +235,11 @@ const D = (function(){
     {id:"m_gospel", t:"교회에 가 본 적 없는 사람에게 복음 설명하기", kind:"talk", open:"I have never been to church. Can you tell me, in simple words, why Jesus matters to you?"}
   ];
 
-  const PLAN = {5:{phr:3, dr:2, talk:1, retell:0}, 15:{phr:5, dr:4, talk:2, retell:1}, 30:{phr:8, dr:6, talk:4, retell:2}, 60:{phr:10, dr:8, talk:6, retell:3}};
+  /* rev = 지난 문장 복습(3문제 한 번), lis = 듣기 · 귀 뚫기(이야기 한 편). 5분·15분 과정에는 듣기를 넣지 않는다(훈련에서 따로 할 수 있다). */
+  const PLAN = {5:{rev:0, phr:3, dr:2, talk:1, retell:0, lis:0}, 15:{rev:1, phr:5, dr:4, talk:2, retell:1, lis:0}, 30:{rev:1, phr:8, dr:6, talk:4, retell:2, lis:1}, 60:{rev:1, phr:10, dr:8, talk:6, retell:3, lis:1}};
   /* 이번 버전에서 바뀐 것: 맨 위가 지금 판 (시험이 BUILD와 맞는지 확인한다) */
   const CHANGELOG = [
+    [37, "2026-11-17", "오늘 루틴에 지난 문장 복습 3문제와 듣기 · 귀 뚫기를 넣음 · 분당 한도에 걸리면 스스로 기다렸다 다시 보냄 · 패드 트랙패드로도 당겨서 새로 고침"],
     [36, "2026-11-16", "실전 미션을 앱 안에서 바로 하고 자동으로 표시 · 홈에 성장 예상 그래프와 토익·토플·텝스 대응 점수"],
     [35, "2026-11-16", "듣기 · 귀 뚫기의 질문을 네 개 가운데 고르는 방식으로 바꾸고 바로 채점"],
     [34, "2026-11-16", "구문 화면의 상황별 단추에 구문 수 표시"],
