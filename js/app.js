@@ -41,6 +41,7 @@ function drawGate() {
 }
 function render() {
   SAY = []; KEEP = [];
+  if (A && U.tab === "train" && !document.hidden && A.phase !== "sending" && store.get("ec_unseen")) store.del("ec_unseen");
   let h;
   const gate = gateOn();
   document.body.classList.toggle("ec-gated", gate);
@@ -68,7 +69,10 @@ function go(tab) {
 const hasPend = a => !!a && (a.type === "talk" || a.type === "retell" ? !!a.pend : hasWork(a));
 function pendSave() { if (hasPend(A)) idbSet("pend", { t: Date.now(), a: A }); else idbDel("pend"); }
 /* 채점이 끝났을 때: 훈련 화면을 보고 있으면 true, 다른 화면이면 알림을 띄우고 false */
-function arrived(text) { pendSave(); if (A) A.autoTried = false; if (U.tab !== "train") { U.flash = { text }; render(); return false; } U.note = null; render(); return true; }
+function arrived(text) { pendSave(); if (A) A.autoTried = false;
+  /* 보고 있지 않을 때 끝난 결과는 표시를 남겨, 화면이 닫혔다 열려도 기록에서 바로 보이게 한다 */
+  if (document.hidden || U.tab !== "train") { const last = DB.log[DB.log.length - 1]; if (last) store.set("ec_unseen", last.id); } else store.del("ec_unseen");
+  if (U.tab !== "train") { U.flash = { text }; render(); return false; } U.note = null; render(); return true; }
 function failed(me, why, kind) {
   me.phase = "fail"; me.failMsg = why; me.failKind = kind || "other"; pendSave();
   if (U.tab !== "train") { U.flash = { text: me.title + ": 채점이 멈췄습니다." }; render(); } else { render(); setMsg(why, true); }
@@ -196,12 +200,12 @@ function natHtml(nat, sents) {
 }
 function natCard() {
   const L = natList(); let n = 0; L.forEach(r => { n += natSents(r.nat, r.ns).length; });
-  let h = '<p class="ec-sub">선생님과의 대화에서 내 말을 자연스럽게 고쳐 준 답안이 여기에 모입니다. 문장마다 듣고, 쓰고 싶은 문장은 내 구문에 담아 입으로 익히세요. 기록과 함께 계정에 저장됩니다.</p>' +
-    btn(L.length ? (U.natOpen ? "접기" : "모범답안 보기 (대화 " + L.length + "번 · " + n + "문장)") : "아직 대화 기록이 없습니다", "natOpen", null, L.length ? (U.natOpen ? "ghost" : "") : "ghost");
+  let h = '<p class="ec-sub">선생님과의 대화와 레벨 테스트에서 내 말을 자연스럽게 고쳐 준 답안이 여기에 모입니다. 문장마다 듣고, 쓰고 싶은 문장은 내 구문에 담아 입으로 익히세요. 기록과 함께 계정에 저장됩니다.</p>' +
+    btn(L.length ? (U.natOpen ? "접기" : "모범답안 보기 (대답 " + L.length + "개 · " + n + "문장)") : "아직 대화 기록이 없습니다", "natOpen", null, L.length ? (U.natOpen ? "ghost" : "") : "ghost");
   if (U.natOpen && L.length) {
     const have = {}; allPhrases().forEach(p => { have[p.en.toLowerCase()] = 1; });
     const noKo = L.slice(0, U.natN).some(r => natSents(r.nat, r.ns).some(x => !x.ko && !have[x.en.toLowerCase()]));
-    L.slice(0, U.natN).forEach(r => { const sc = D.SCENES.find(x => x.id === r.sc), dt = new Date(r.t);
+    L.slice(0, U.natN).forEach(r => { const sc = { name: r.name }, dt = new Date(r.t);
       h += '<div class="ec-hr"></div><p class="ec-sub"><b>' + (dt.getMonth() + 1) + "월 " + dt.getDate() + "일 · " + esc(sc ? sc.name : "대화") + '</b>' + (r.q ? '<br>질문: ' + esc(r.q) : "") + '</p>' + natHtml(r.nat, r.ns); });
     if (noKo) h += '<p class="ec-sub">예전 답안에는 우리말 뜻이 없어, 「뜻 받아 담기」를 누르면 선생님에게 뜻을 받아서 담습니다(요청 한 번). 이번 판부터 하는 대화는 뜻이 함께 나옵니다.</p>';
     if (L.length > U.natN) h += '<div class="ec-row">' + btn("더 보기 (" + (L.length - U.natN) + "번 남음)", "natMore", null, "ghost small") + '</div>';
@@ -619,7 +623,7 @@ function testFinish() {
   T.forEach((t, i) => { tags = tags.concat(tagsOf(t.res, t.clip.m, calc[i].words, t.k === "read")); fx = fx.concat(t.res.gram.map(g => ({ a: g.said.slice(0, 120), b: g.better.slice(0, 120), g: g.tag }))); pr = pr.concat(t.res.pron.map(x => ({ w: x.word, g: x.tag }))); });
   const prev = tests().slice(-1)[0] || null;
   logAdd({ k: "test", score: out.total, lv: out.level, parts: out.parts, set: A.set, tags: uniq(tags), fx: fx.slice(0, 8), pr: pr.slice(0, 8), md: T[0].model,
-    tasks: T.map((t, i) => ({ k: t.k, tx: t.res.transcript.slice(0, 600), s: [t.res.sc.pron, t.res.sc.inton, t.res.sc.gram, t.res.sc.vocab, t.res.sc.task], m: mPack(t.clip.m, calc[i].words), c: t.res.comment.slice(0, 300) })) });
+    tasks: T.map((t, i) => ({ k: t.k, tx: t.res.transcript.slice(0, 600), s: [t.res.sc.pron, t.res.sc.inton, t.res.sc.gram, t.res.sc.vocab, t.res.sc.task], m: mPack(t.clip.m, calc[i].words), c: t.res.comment.slice(0, 300), nat: (t.res.natural || "").slice(0, 900), ns: (t.res.sents || []).map(x => ({ en: x.en, ko: x.ko })) })) });
   const day = dayRec(); T.forEach(t => { day.said += sentences(t.res.transcript); }); daySave();
   A.out = out; A.prev = prev; A.tags = uniq(tags); A.phase = "done";
   if (arrived("레벨 테스트 채점이 끝났습니다.")) window.scrollTo(0, 0);
@@ -635,7 +639,7 @@ function drawTestDone() {
   if (A.tags.length) h += '<h3>이번 테스트에서 나온 약점</h3><div class="ec-row">' + A.tags.map(tagChip).join("") + '</div>';
   A.tasks.forEach(t => {
     const w = wpmOf(t.clip.m, wc(t.res.transcript)), pp = ppmOf(t.clip.m);
-    h += '<h3>' + TEST_NAME[t.k] + '</h3><div class="ec-kv">속도 ' + (w ? Math.round(w) + "단어/분" : "–") + ' · 분당 멈춤 ' + (pp != null ? pp.toFixed(0) : "–") + ' · 높낮이 폭 ' + (t.clip.m.st != null ? t.clip.m.st.toFixed(1) + "반음" : "–") + '</div><p>' + esc(t.res.comment) + '</p><div class="ec-said small">' + esc(t.res.transcript) + '</div>';
+    h += '<h3>' + TEST_NAME[t.k] + '</h3><div class="ec-kv">속도 ' + (w ? Math.round(w) + "단어/분" : "–") + ' · 분당 멈춤 ' + (pp != null ? pp.toFixed(0) : "–") + ' · 높낮이 폭 ' + (t.clip.m.st != null ? t.clip.m.st.toFixed(1) + "반음" : "–") + '</div><p>' + esc(t.res.comment) + '</p><div class="ec-said small">' + esc(t.res.transcript) + '</div>' + (t.res.natural ? '<p class="ec-sub">이렇게 말하면 자연스럽습니다</p>' + natHtml(t.res.natural, t.res.sents) : "");
   });
   h += '<div class="ec-msg">공인 시험이 아닌 참고 등급입니다. 같은 조건에서 반복해 변화를 보는 데 씁니다.</div><div class="ec-row">' + btn("홈으로", "xHome") + btn("기록 보기", "xRec", null, "ghost") + '</div>';
   return card("레벨 테스트 결과", h);
@@ -727,12 +731,12 @@ function recDetail(r) {
     const s = r.s || [], m = r.m || [];
     h += (r.q ? '<p class="ec-sub">질문: ' + esc(r.q) + '</p>' : "") + '<div class="ec-said small">' + esc(r.tx || "(글은 저장 공간을 위해 덜어 냈습니다)") + '</div><div class="ec-scores">' + scoreCell("발음", s[0]) + scoreCell("억양", s[1]) + scoreCell("유창성", s[2]) + scoreCell("문법", s[3]) + '</div>';
     h += '<div class="ec-kv">속도 ' + (m[5] != null ? m[5] + "단어/분" : "–") + ' · 멈춤 ' + (m[2] != null ? m[2] + "번" : "–") + ' · 높낮이 폭 ' + (m[4] != null ? m[4] + "반음" : "–") + '</div>';
-    if (r.nat) h += '<h3>자연스러운 표현</h3><div class="ec-nat">' + esc(r.nat) + ' ' + say(r.nat) + '</div>';
+    if (r.nat) h += '<h3>자연스러운 표현</h3>' + natHtml(r.nat, r.ns);
     if ((r.fx || []).length) h += r.fx.map(f => '<div class="ec-fix"><del>' + esc(f.a) + '</del> → <b>' + esc(f.b) + '</b></div>').join("");
   } else if (r.k === "phr" || r.k === "dr") {
     h += (r.it || []).map(x => { const it = itemByRef(x[0]); return '<div class="ec-fix"><b>' + (x[1] ? "✓" : "✗") + '</b> ' + esc(it ? it.en : x[0]) + (x[4] ? '<div class="ec-sub">들린 말: ' + esc(x[4]) + '</div>' : "") + '</div>'; }).join("");
   } else if (r.k === "test") {
-    h += '<div class="ec-scores">' + Object.keys(PART_NAME).map(k => scoreCell(PART_NAME[k], (r.parts || {})[k])).join("") + '</div>' + (r.tasks || []).map(t => '<h3>' + TEST_NAME[t.k] + '</h3><p class="ec-sub">' + esc(t.c || "") + '</p><div class="ec-said small">' + esc(t.tx || "") + '</div>').join("");
+    h += '<div class="ec-scores">' + Object.keys(PART_NAME).map(k => scoreCell(PART_NAME[k], (r.parts || {})[k])).join("") + '</div>' + (r.tasks || []).map(t => '<h3>' + TEST_NAME[t.k] + '</h3><p class="ec-sub">' + esc(t.c || "") + '</p><div class="ec-said small">' + esc(t.tx || "") + '</div>' + (t.nat ? '<p class="ec-sub">이렇게 말하면 자연스럽습니다</p>' + natHtml(t.nat, t.ns) : "")).join("");
   } else {
     const s = r.s || [];
     h += '<div class="ec-scores">' + scoreCell("발음", s[0]) + scoreCell("억양", s[1]) + scoreCell("유창성", s[2]) + scoreCell("문법", s[3]) + '</div><div class="ec-kv">이전 버전에서 옮겨 온 기록입니다.</div>';
@@ -749,6 +753,7 @@ function drawRecords() {
   h += card("참고 등급 변화", ts.length ? levelChart(ts) + '<p class="ec-sub">테스트 ' + ts.length + '번. 점선은 등급 경계입니다.</p>' : '<div class="ec-msg">레벨 테스트를 하면 여기에 변화가 그려집니다.</div>' + btn("레벨 테스트 시작", "start", "test", "ghost"));
   h += card("최근 14일 연습 시간", minutesChart() + '<p class="ec-sub">가로선이 하루 목표 ' + DB.set.minutes + '분입니다.</p>');
   const log = DB.log.slice().reverse(), show = log.slice(0, U.logN);
+  if (U.unseenMsg) h = msgBox(U.unseenMsg) + h;
   h += card("연습 기록 " + log.length + "개", (show.length ? show.map(r => '<button class="ec-fold" data-act="logOpen" data-arg="' + esc(r.id) + '"><span><small>' + stamp(r.t).slice(5) + ' · ' + (KIND[r.k] || "기록") + '</small>' + recSummary(r) + '</span></button>' + (U.logOpen === r.id ? '<div class="ec-turn">' + recDetail(r) + '</div>' : "")).join("") : '<div class="ec-msg">아직 기록이 없습니다.</div>') +
     (log.length > U.logN ? '<div class="ec-row end">' + btn("더 보기", "logMore", null, "ghost small") + '</div>' : ""));
   h += card("Claude에게 코칭받기", '<p class="ec-sub">최근 2주 요약을 복사해 Claude 대화에 붙여 넣으면 더 깊은 코칭을 받을 수 있습니다. 내가 한 영어 문장이 들어갑니다.</p>' + btn("요약 복사", "repCopy", null, "ghost") + msgBox(U.repMsg) + copyArea("repMsg"));
@@ -853,7 +858,7 @@ function drawSettings() {
 
 /* ---------- 누르기 ---------- */
 const ACT = {
-  tab: a => { U.tagSel = null; U.ordSel = null; U.delAsk = null; U.back = null; go(a); },
+  tab: a => { U.unseenMsg = null; U.tagSel = null; U.ordSel = null; U.delAsk = null; U.back = null; go(a); },
   top: () => window.scrollTo({ top: 0, behavior: "smooth" }),
   bottom: () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" }),
   xiSave: () => { const k = String(U.f.xiKey || "").trim(); if (k.length < 20) { U.xiMsg = { text: "ElevenLabs 키를 붙여 넣어 주세요.", err: true }; render(); return; } xiUnlock(); xiSetup(k, true); },
@@ -1041,7 +1046,7 @@ window.addEventListener("pagehide", daySave);
 const MIGRATED = dbLoad();
 gLoad(); authLoad(); /* ---------- 새 판이 올라오면 저절로 바꿔 탄다. 녹음·채점 중에는 기다렸다가 끝난 뒤에 한다. ---------- */
 const UPD = { want: 0, last: 0 };
-function updIdle() { return !REC.on && !ttsPlaying() && !(A && (A.phase === "sending" || hasWork(A))) && !(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)); }
+function updIdle() { return !A && !REC.on && !ttsPlaying() && !(A && (A.phase === "sending" || hasWork(A))) && !(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)); }
 function updGo() {
   if (!UPD.want || UPD.want <= BUILD || !updIdle()) return false;
   let did = ""; try { did = sessionStorage.getItem("ec_upd") || ""; } catch (e) {}
@@ -1065,7 +1070,13 @@ render();
 if (BACK) BACK.then(() => { U.smsg = { text: "로그인했습니다. 기록을 맞추는 중…" }; render(); return afterLogin(); })
   .then(() => { U.smsg = SYNC.ask || SYNC.err ? null : { text: "로그인했고 기록을 맞췄습니다." }; render(); }, e => { U.smsg = { text: String(e && e.message || e), err: true }; render(); });
 else authResume();
-pendRestore();
+pendRestore().then(() => {                          /* 나가 있는 동안 채점이 끝났는데 화면이 닫혔던 경우: 그 결과를 기록에서 펼쳐 보여 준다 */
+  const id = store.get("ec_unseen"); if (!id) return;
+  if (A) { if (A.phase === "done" || A.type === "talk") return; }
+  store.del("ec_unseen"); if (A || !DB.log.some(r => r.id === id)) return;
+  U.tab = "rec"; U.logOpen = id; U.unseenMsg = { text: "나가 있는 동안 채점이 끝났습니다. 그 결과를 아래 연습 기록에 펼쳐 두었습니다." }; render();
+  setTimeout(() => { const el = document.querySelector('[data-act="logOpen"][data-arg="' + id + '"]'); if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" }); }, 60);
+});
 window.__ec = { U, DB, G, REC, ACT, CHG, Clock, AUTH, SYNC, FB, get A() { return A; }, set A(v) { A = v; }, render, go, tick, beat, dbLoad, dbSave, logAdd, srsMark, tagStats, focusTags, pickPhrases, pickDrills, testScore, levelOf, backupMake, backupMerge, coachReport, analyze, sysFor, profileText, dayRec, today, streak, MIGRATED };
 /* 마이크 허용 상태(브라우저가 알려 줄 때만). 바뀌면 설정 화면에 바로 보이게. */
 function micWatch() {
@@ -1080,3 +1091,17 @@ function micWatch() {
 micWatch();
 /* 이어 듣기 진행 표시: 화면 전체를 다시 그리지 않고 한 줄만 바꾼다. 끝나면 단추를 되돌린다. */
 LOOP.onPaint = () => { const el = $("ecLoopSt"); if (LOOP.on) { if (el) { el.className = "ec-msg"; el.textContent = loopStatus(); } } else if (U.tab === "phr" && !REC.on) { const y = window.scrollY; render(); window.scrollTo(0, y); } };
+/* 맨 위에서 아래로 길게 당겨 새로 고침. 스치는 손짓에는 반응하지 않도록 110px 넘게, 0.35초 넘게 당긴 뒤 놓았을 때만. 녹음·채점·훈련 중에는 하지 않는다. */
+const PULL = { y0: null, x0: 0, t0: 0, d: 0, el: null, NEED: 110, HOLD: 350 };
+function pullOk() { return window.scrollY <= 0 && !REC.on && !(A && (A.phase === "sending" || hasWork(A))) && !ttsPlaying() && !(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)); }
+function pullShow(d, ready) { if (!PULL.el) { PULL.el = document.createElement("div"); PULL.el.className = "ec-pull"; document.body.appendChild(PULL.el); }
+  PULL.el.textContent = ready ? "놓으면 새로 고침" : "더 당기면 새로 고침"; PULL.el.className = "ec-pull" + (ready ? " ready" : ""); PULL.el.style.transform = "translate(-50%," + (d > 30 ? Math.min(70, d / 2) - 30 : -60) + "px)"; }
+function pullReady() { return PULL.d >= PULL.NEED && Date.now() - PULL.t0 >= PULL.HOLD; }
+function pullRefresh() { daySave(); const go = () => { location.reload(); };
+  if (typeof syncNow === "function" && AUTH.uid) { let done = false; const fin = () => { if (!done) { done = true; go(); } }; syncNow().then(fin, fin); setTimeout(fin, 4000); } else go(); }
+document.addEventListener("touchstart", e => { PULL.y0 = (e.touches.length === 1 && pullOk()) ? e.touches[0].clientY : null; PULL.x0 = e.touches[0].clientX; PULL.t0 = Date.now(); PULL.d = 0; }, { passive: true });
+document.addEventListener("touchmove", e => { if (PULL.y0 == null) return; const dy = e.touches[0].clientY - PULL.y0, dx = Math.abs(e.touches[0].clientX - PULL.x0);
+  if (dy <= 0 || dx > dy * 0.6 || window.scrollY > 0) { PULL.d = 0; if (dy < -10 || dx > 40) PULL.y0 = null; pullShow(0, false); return; }
+  PULL.d = dy; pullShow(dy, pullReady()); }, { passive: true });
+document.addEventListener("touchend", () => { if (PULL.y0 == null) return; const ok = pullReady() && pullOk(); PULL.y0 = null; if (ok) { if (PULL.el) PULL.el.textContent = "새로 고치는 중…"; pullRefresh(); } else pullShow(0, false); PULL.d = 0; }, { passive: true });
+document.addEventListener("touchcancel", () => { PULL.y0 = null; PULL.d = 0; pullShow(0, false); }, { passive: true });

@@ -65,7 +65,7 @@ MOCK = r"""
       var k = /TASK TYPE: (\w+)/.exec(text)[1], idx = ["read","daily","story","explain"].indexOf(k);
       if(M.testEmptyAt === idx){ M.testEmptyAt = -1; return {transcript:"", scores:{}, comment_ko:""}; }
       var S = {read:[72,66,null,null,90], daily:[70,64,62,60,75], story:[68,62,58,61,70], explain:[66,60,55,58,62]}[k];
-      return {transcript:"Every morning I wake up early and make coffee then I read the Bible for about twenty minutes and I pray for my family and my church.", scores:{pronunciation:S[0], intonation:S[1], grammar:S[2], vocabulary:S[3], task:S[4]}, comment_ko:"뜻은 분명하게 전달돼요. 기본 문법 실수가 자주 나와요.", grammar: k === "read" ? [] : [{said:"I go yesterday", better:"I went yesterday", tag:"g_tense"}], pronunciation:[{word:"think", tag:"p_th"}], delivery_tags: k === "story" ? ["d_filler"] : []};
+      return {transcript:"Every morning I wake up early and make coffee then I read the Bible for about twenty minutes and I pray for my family and my church.", scores:{pronunciation:S[0], intonation:S[1], grammar:S[2], vocabulary:S[3], task:S[4]}, natural: k === "read" ? "" : "Every morning I wake up early and make coffee. Then I read the Bible for about twenty minutes.", sents: k === "read" ? [] : [{en:"Every morning I wake up early and make coffee.", ko:"매일 아침 일찍 일어나 커피를 내려요."},{en:"Then I read the Bible for about twenty minutes.", ko:"그리고 20분쯤 성경을 읽어요."}], comment_ko:"뜻은 분명하게 전달돼요. 기본 문법 실수가 자주 나와요.", grammar: k === "read" ? [] : [{said:"I go yesterday", better:"I went yesterday", tag:"g_tense"}], pronunciation:[{word:"think", tag:"p_th"}], delivery_tags: k === "story" ? ["d_filler"] : []};
     }
     return {};
   }

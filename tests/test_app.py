@@ -406,7 +406,7 @@ def s18(b):
     if has(pg, "quit", "yes"): click(pg, "quit", "yes")
     # 모범답안 모음 (예전 기록에는 문장별 뜻이 없다)
     ev(pg, "(function(){ DB.log.push({ id:'old1', t: now() - 3*86400000, k:'talk', sc:'daily', q:'Tell me about your church.', tx:'I serve church ten year.', nat:'I have served at my church for ten years. Dr. Kim is our senior pastor. We love our people!', s:[60,60,60,60], tags:[] }); dbSave('log'); window.__ec.A = null; window.__ec.go('phr'); })()")
-    t.check("s18 구문 화면에 모범답안 모음 (대화 2번 · 6문장)", "모범답안 보기 (대화 2번 · 6문장)" in text(pg), text(pg)[:400])
+    t.check("s18 구문 화면에 모범답안 모음 (대답 2개 · 6문장)", "모범답안 보기 (대답 2개 · 6문장)" in text(pg), text(pg)[:400])
     t.check("s18 문장 나누기: 호칭의 점에서 끊지 않음", ev(pg, "JSON.stringify(natSplit('I have served for ten years. Dr. Kim is our pastor. We love our people!'))") == '["I have served for ten years.","Dr. Kim is our pastor.","We love our people!"]')
     click(pg, "natOpen")
     t.check("s18 열면 날짜·장면·질문과 문장별 듣기", "오늘 하루 세 문장" in text(pg) and "질문: Tell me about your church." in text(pg) and pg.locator('.ec-nat [data-act="say"]').count() == 6 and "Dr. Kim is our senior pastor." in text(pg))
@@ -566,6 +566,54 @@ def s20(b):
     t.check("s20 설정에 이번 버전에서 바뀐 것, 맨 위가 지금 판", "이번 버전에서 바뀐 것" in text(pg) and ev(pg, "D.CHANGELOG[0][0] === BUILD") and ("v%d" % ev(pg, "BUILD")) in text(pg) and "마이크를 매번 묻지 않게" in text(pg))
     t.check("s20 모든 단추에 동작이 연결됨", handlers_ok(pg) == [], handlers_ok(pg))
     t.check("s20 오류 없음", not real(errs), errs); ctx.close()
+
+def s21(b):
+    print("\n== s21 레벨 테스트 모범답안 · 나가 있는 동안 끝난 채점 ==")
+    ctx, pg, errs = page(b); set_key(pg); click(pg, "tab", "train"); click(pg, "start", "test")
+    ev(pg, "(function(){ var A=window.__ec.A; A.tasks.forEach(function(t){ t.clip=window.__fakeClip(6); }); A.i=A.tasks.length-1; testSend(); })()")
+    click(pg, "tab", "phr"); wait_phase(pg, "done", 40000)
+    last = ev(pg, "DB.log[DB.log.length-1]")
+    t.check("s21 테스트 요청에 모범답안 지시가 들어가고, 낭독 빼고 세 과제에 문장별 답안이 저장됨", '"sents"' in ev(pg, "window.__calls[window.__calls.length-1].sys") and last["k"] == "test" and [bool(x.get("nat")) for x in last["tasks"]] == [False, True, True, True] and len(last["tasks"][1]["ns"]) == 2, [x.get("nat") for x in last["tasks"]])
+    t.check("s21 다른 화면에 있을 때 끝나면 표시가 남음", ev(pg, "localStorage.getItem('ec_unseen')") == last["id"] and ev(pg, "updIdle()") is False)
+    click(pg, "tab", "home"); click(pg, "tab", "phr")
+    t.check("s21 모범답안 모음에 테스트 답안이 함께 모임", "모범답안 보기 (대답 3개 · 6문장)" in text(pg), text(pg)[:300])
+    click(pg, "natOpen"); t.check("s21 모음에 「레벨 테스트 · ② 일상 질문」으로 보이고 문장마다 듣기·담기", "레벨 테스트 · ② 일상 질문" in text(pg) and pg.locator('.ec-nat [data-act="say"]').count() == 6 and pg.locator('.ec-nat [data-act="natAdd"]').count() >= 2)
+    pg.reload(); pg.wait_for_function("window.__ec"); wait_js(pg, "window.__ec.U.tab === 'rec'", 8000)
+    t.check("s21 다시 열면 기록 화면에서 그 결과가 펼쳐져 있음", ev(pg, "window.__ec.U.logOpen") == last["id"] and "나가 있는 동안 채점이 끝났습니다" in text(pg) and "이렇게 말하면 자연스럽습니다" in text(pg) and pg.locator('.ec-nat [data-act="say"]').count() == 6 and ev(pg, "localStorage.getItem('ec_unseen')") is None, text(pg)[:200])
+    pg.reload(); pg.wait_for_function("window.__ec"); pg.wait_for_timeout(600)
+    t.check("s21 한 번 보여 준 뒤에는 되풀이하지 않음", ev(pg, "window.__ec.U.tab") == "home")
+    click(pg, "tab", "train"); click(pg, "start", "test")
+    ev(pg, "(function(){ var A=window.__ec.A; A.tasks.forEach(function(t){ t.clip=window.__fakeClip(6); }); A.i=A.tasks.length-1; testSend(); })()"); wait_phase(pg, "done", 40000)
+    t.check("s21 보고 있을 때 끝나면 결과 화면에 문장별 모범답안, 표시는 없음", "레벨 테스트 결과" in text(pg) and pg.locator('.ec-nat [data-act="say"]').count() == 6 and ev(pg, "localStorage.getItem('ec_unseen')") is None)
+    t.check("s21 결과를 보는 동안에는 새 버전으로 바꾸지 않음", ev(pg, "updIdle()") is False)
+    click(pg, "xHome"); t.check("s21 결과를 닫으면 다시 바꿀 수 있음", ev(pg, "updIdle()") is True)
+    # 듣는 중에 화면을 만져도 소리를 건드리지 않는다 (만질 때마다 무음을 다시 틀던 오류)
+    r = ev(pg, """(function(){ XI.key = 'sk_x'; XI.open = false; const set = []; const fake = { paused: false, ended: false, currentTime: 1, _src: 'blob:abc', play(){ return Promise.resolve(); }, pause(){ this.paused = true; } };
+      Object.defineProperty(fake, 'src', { get(){ return this._src; }, set(v){ set.push(v); this._src = v; } }); XI.audio = fake;
+      document.dispatchEvent(new Event('pointerdown', { bubbles: true })); xiUnlock(); const during = set.length;
+      fake.paused = true; xiUnlock(); const after = set.length; XI.key = ''; XI.audio = null; XI.open = false; return [during, after]; })()""")
+    t.check("s21 소리가 나는 중에는 화면을 만져도 오디오를 건드리지 않고, 멈춰 있을 때만 준비함", r == [0, 1], r)
+    # 홈 단추 · 당겨서 새로 고침
+    click(pg, "tab", "rec"); pg.locator(".ec-head .ec-homebtn").click()
+    t.check("s21 왼쪽 위 홈 단추로 홈에 돌아옴", ev(pg, "window.__ec.U.tab") == "home" and ev(pg, "document.querySelector('.ec-head').firstElementChild.classList.contains('ec-homebtn')"))
+    ev(pg, """(function(){ window.__ref = 0; window.pullRefresh = function(){ window.__ref++; };
+      window.__touch = function(type, y, x){ const e = new Event(type, { bubbles: true }); e.touches = type === 'touchend' ? [] : [{ clientY: y, clientX: x || 100 }]; document.dispatchEvent(e); }; window.scrollTo(0, 0); })()""")
+    ev(pg, "(function(){ __touch('touchstart', 100); __touch('touchmove', 160); })()"); pg.wait_for_timeout(450); ev(pg, "__touch('touchend')")
+    t.check("s21 조금만 당기면 새로 고치지 않음", ev(pg, "window.__ref") == 0)
+    ev(pg, "(function(){ __touch('touchstart', 100); __touch('touchmove', 300); __touch('touchend'); })()")
+    t.check("s21 길게 당겨도 휙 스치면 새로 고치지 않음", ev(pg, "window.__ref") == 0)
+    ev(pg, "(function(){ __touch('touchstart', 100, 100); __touch('touchmove', 300, 300); })()"); pg.wait_for_timeout(450); ev(pg, "(function(){ __touch('touchmove', 300, 300); __touch('touchend'); })()")
+    t.check("s21 옆으로 미는 손짓에는 반응하지 않음", ev(pg, "window.__ref") == 0)
+    ev(pg, "(function(){ __touch('touchstart', 100); __touch('touchmove', 200); })()"); pg.wait_for_timeout(450); ev(pg, "__touch('touchmove', 260)")
+    t.check("s21 충분히 당기고 있으면 「놓으면 새로 고침」 표시", "놓으면 새로 고침" in ev(pg, "document.querySelector('.ec-pull').textContent") and ev(pg, "window.__ref") == 0)
+    ev(pg, "__touch('touchend')"); t.check("s21 그 상태에서 놓으면 새로 고침", ev(pg, "window.__ref") == 1)
+    click(pg, "tab", "train"); click(pg, "start", "phr"); ev(pg, "window.__fillBatch()"); ev(pg, "window.scrollTo(0, 0)")
+    ev(pg, "(function(){ __touch('touchstart', 100); __touch('touchmove', 200); })()"); pg.wait_for_timeout(450); ev(pg, "(function(){ __touch('touchmove', 280); __touch('touchend'); })()")
+    t.check("s21 녹음해 둔 훈련이 있으면 새로 고치지 않음 (녹음 보호)", ev(pg, "window.__ref") == 1)
+    click(pg, "quit"); 
+    if has(pg, "quit", "yes"): click(pg, "quit", "yes")
+    t.check("s21 모든 단추에 동작이 연결됨", handlers_ok(pg) == [], handlers_ok(pg))
+    t.check("s21 오류 없음", not real(errs), errs); ctx.close()
 
 def s14(b):
     print("\n== s14 채점 중 안내 ==")

@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 30;
+const BUILD = 32;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -163,7 +163,13 @@ function natSents(nat, sents) {
   const by = {}; a.forEach(x => { by[key(x.en)] = String(x.ko || "").trim(); });
   return sp.map(en => ({ en: en, ko: by[key(en)] || "" }));
 }
-function natList() { return DB.log.filter(r => r && r.k === "talk" && r.nat && /[A-Za-z]/.test(r.nat)).slice().sort((x, y) => y.t - x.t); }
+function natList() {                               /* 대화 대답과 레벨 테스트 대답의 모범답안을 한데, 새것부터 */
+  const out = [], ok = s => s && /[A-Za-z]/.test(s);
+  DB.log.forEach(r => { if (!r) return;
+    if (r.k === "talk" && ok(r.nat)) { const sc = D.SCENES.find(x => x.id === r.sc); out.push({ t: r.t, name: sc ? sc.name : "대화", q: r.q || "", nat: r.nat, ns: r.ns }); }
+    else if (r.k === "test") (r.tasks || []).forEach((t, i) => { if (ok(t.nat)) out.push({ t: r.t - i, name: "레벨 테스트 · " + (TEST_NAME[t.k] || ""), q: "", nat: t.nat, ns: t.ns }); }); });
+  return out.sort((x, y) => y.t - x.t);
+}
 function allPhrases() { return DB.my.map(p => ({ id: p.id, c: "my", en: p.en, ko: p.ko || "" })).concat(D.PHRASES); }
 function phraseState(id) { const s = DB.srs[id]; if (!s || !s.n) return "new"; return s.b >= 4 ? "known" : "learning"; }
 function newOrder() {                              /* 새 구문 순서: 내가 담은 것 먼저, 그다음 상황별로 하나씩 돌아가며 */
@@ -456,14 +462,16 @@ function xiVoices(key) {                              /* 미국식이 위로, �
 function xiUsage(key) { return xiGet("user/subscription", key).then(j => { XI.used = +j.character_count || 0; XI.limit = +j.character_limit || 0; return j; }); }
 function xiSetVoice(id) { const v = XI.voices.filter(x => x.id === id)[0]; if (!v) return; XI.voice = v.id; XI.name = v.name; store.set("ec_xivoice", v.id); store.set("ec_xiname", v.name); }
 function xiClear() { XI.key = ""; XI.voice = ""; XI.name = ""; XI.voices = []; XI.pool = []; XI.used = XI.limit = null; XI.note = ""; ["ec_xikey", "ec_xivoice", "ec_xiname", "ec_xipool", "ec_xipooln"].forEach(k => store.del(k)); }
-function xiUnlock() { if (XI.open || !XI.key) return; try { if (!XI.audio) XI.audio = new Audio(); XI.audio.src = XI_SILENT; const p = XI.audio.play(); if (p && p.then) p.then(() => { XI.open = true; }, () => {}); } catch (e) {} }
+/* 소리가 나는 중에는 절대 건드리지 않는다. (화면을 만질 때마다 무음을 다시 틀어 듣던 소리가 끊기던 원인) */
+function xiBusyNow() { try { return !!(XI.audio && !XI.audio.paused && !XI.audio.ended && XI.audio.src && XI.audio.src.indexOf("blob:") === 0); } catch (e) { return false; } }
+function xiUnlock() { if (XI.open || !XI.key || xiBusyNow()) return; try { if (!XI.audio) XI.audio = new Audio(); XI.audio.src = XI_SILENT; const p = XI.audio.play(); if (p && p.then) p.then(() => { XI.open = true; }, () => {}); } catch (e) {} }
 function xiPlay(buf, type) {
   return new Promise(res => {
     try {
       if (!XI.audio) XI.audio = new Audio();
       if (XI.url) URL.revokeObjectURL(XI.url);
       XI.url = URL.createObjectURL(new Blob([buf], { type: type || "audio/mpeg" })); XI.audio.src = XI.url;
-      const p = XI.audio.play(); if (p && p.then) p.then(() => res(true), () => res(false)); else res(true);
+      const p = XI.audio.play(); if (p && p.then) p.then(() => { XI.open = true; res(true); }, () => res(false)); else { XI.open = true; res(true); }
     } catch (e) { res(false); }
   });
 }
@@ -528,7 +536,7 @@ function gtSay(t, role, my) {
   }).then(buf => { if (my !== XI.seq) return true; GT.note = ""; return xiPlay(buf, "audio/wav"); });
 }
 /* 누른 그 순간(손가락 동작 안)에 소리 낼 준비를 해 둔다. 아이폰은 이렇게 해야 조금 뒤에 받은 소리를 틀 수 있다. */
-function ttsPrime() { try { if (!XI.audio) XI.audio = new Audio(); XI.audio.src = XI_SILENT; const p = XI.audio.play(); if (p && p.then) p.then(() => { XI.open = true; }, () => {}); } catch (e) {} }
+function ttsPrime() { if (XI.open) return; try { if (!XI.audio) XI.audio = new Audio(); XI.audio.src = XI_SILENT; const p = XI.audio.play(); if (p && p.then) p.then(() => { XI.open = true; }, () => {}); } catch (e) {} }
 function ttsBusy(on) {
   try { let el = document.getElementById("ecTts"); if (!el) { if (!on) return; el = document.createElement("div"); el.id = "ecTts"; el.textContent = "소리 불러오는 중…"; el.setAttribute("style", "position:fixed;left:50%;transform:translateX(-50%);bottom:84px;z-index:60;background:rgba(20,40,34,.92);color:#fff;font-size:13px;padding:7px 14px;border-radius:999px;pointer-events:none"); document.body.appendChild(el); } el.style.display = on ? "block" : "none"; } catch (e) {}
 }
@@ -886,6 +894,8 @@ const SYS_MODE = {
     '{"transcript": string,',
     ' "scores": {"pronunciation": int, "intonation": int, "grammar": int or null, "vocabulary": int or null, "task": int},',
     ' "comment_ko": string (two sentences: the main strength, then the main limit),',
+    ' "natural": string (for TASK TYPE read: an empty string. Otherwise his whole answer the way a native speaker would say it: same meaning, same length, simple words he can reuse),',
+    ' "sents": [{"en": string, "ko": string}] (every sentence of "natural", in the same order, one sentence per item, each with its natural Korean meaning; empty for TASK TYPE read),',
     ' "grammar": [{"said": string, "better": string, "tag": string}] (at most 4),',
     ' "pronunciation": [{"word": string, "tag": string}] (at most 4),',
     ' "delivery_tags": [string] (only d_filler and/or d_ending)}'
@@ -940,7 +950,7 @@ function cleanRetell(r) {
     cheer: str(r.cheer_ko, 300), delivery: cleanDelivery(r.delivery_tags), sc: cleanScores(r.scores) };
 }
 function cleanTest(r) {
-  return { transcript: str(r.transcript, 1500), sc: cleanScores(r.scores), comment: str(r.comment_ko, 400),
+  return { transcript: str(r.transcript, 1500), sc: cleanScores(r.scores), comment: str(r.comment_ko, 400), natural: str(r.natural, 1500), sents: cleanPairs(r.sents, 12),
     gram: (Array.isArray(r.grammar) ? r.grammar : []).slice(0, 4).map(g => ({ said: str(g && g.said, 160), better: str(g && g.better, 160), why: "", tag: tagOk(g && g.tag) || "g_word" })).filter(g => g.better),
     pron: (Array.isArray(r.pronunciation) ? r.pronunciation : []).slice(0, 4).map(p => ({ word: str(p && p.word, 40), tag: tagOk(p && p.tag, "p") })).filter(p => p.word),
     delivery: cleanDelivery(r.delivery_tags) };
