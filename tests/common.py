@@ -39,7 +39,7 @@ MOCK = r"""
     if(mode === "listen"){
       if(M.listenBad){ M.listenBad = false; return {title:"x", sents:[]}; }
       var S = ["I went to the market this morning.","It's not far from our house.","I wanted to buy some fresh fruit.","The seller gave me a big smile.","He asked me where I was from.","I told him I'm from Korea.","We talked for about ten minutes.","Now he's my first friend in this town."];
-      return {title:"A New Friend " + n, title_ko:"새 친구", sents:S.map(function(e, i){ return {en:e, ko:"뜻 " + (i+1), note_ko: i === 1 ? "not far 에서 t 소리가 약해져요." : ""}; }), questions:[{q_ko:"어디에 갔나요?", a_ko:"시장에 갔어요."},{q_ko:"누구와 친구가 됐나요?", a_ko:"과일 파는 분."}], words:[{en:"seller", ko:"파는 사람"},{en:"fresh", ko:"신선한"},{en:"far from", ko:"~에서 먼"}]};
+      return {title:"A New Friend " + n, title_ko:"새 친구", sents:S.map(function(e, i){ return {en:e, ko:"뜻 " + (i+1), note_ko: i === 1 ? "not far 에서 t 소리가 약해져요." : ""}; }), questions:[{q_ko:"어디에 갔나요?", options_ko:["시장에 갔어요.","학교에 갔어요.","병원에 갔어요.","교회에 갔어요."], answer:0, a_ko:"시장에 갔어요."},{q_ko:"누구와 친구가 됐나요?", options_ko:["옆집 아이","과일 파는 분","버스 기사","선생님"], answer:1, a_ko:"과일 파는 분."}], words:[{en:"seller", ko:"파는 사람"},{en:"fresh", ko:"신선한"},{en:"far from", ko:"~에서 먼"}]};
     }
     if(mode === "talk"){
       if(M.talkEmpty) return {transcript:"", reply:"", scores:{pronunciation:null,intonation:null,fluency:null,grammar:null}};

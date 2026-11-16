@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 34;
+const BUILD = 35;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -931,14 +931,21 @@ const SYS_LISTEN = [
   "Return ONLY one JSON object, no markdown:",
   '{"title": string (English, up to 6 words), "title_ko": string,',
   ' "sents": [{"en": string (one sentence, 6 to 16 words), "ko": string (natural Korean meaning), "note_ko": string (ONE short Korean line on why this sentence is hard to catch by ear: a linked sound, a weak or reduced word, a contraction, or a dropped t/d, quoting the English words; empty if nothing special)}] (exactly 8 sentences that form one coherent story or report),',
-  ' "questions": [{"q_ko": string, "a_ko": string}] (exactly 2 gist questions in Korean about the main points, with short Korean answers),',
+  ' "questions": [{"q_ko": string, "options_ko": [string, string, string, string], "answer": int (0-3, the index of the correct option), "a_ko": string (the correct answer as a short Korean sentence)}] (exactly 2 gist questions in Korean about the main points. Each has four short Korean options: one correct, three plausible but clearly wrong according to the text. Put the correct option at a random position),',
   ' "words": [{"en": string, "ko": string}] (3 to 5 words or expressions from the text worth knowing)}'
 ].join("\n");
 function lisClean(r) {
   const s = v => String(v == null ? "" : v).replace(/\s+/g, " ").trim();
   const sents = (Array.isArray(r && r.sents) ? r.sents : []).map(x => ({ en: s(x && x.en).slice(0, 220), ko: s(x && x.ko).slice(0, 220), note: s(x && x.note_ko).slice(0, 220) })).filter(x => /[A-Za-z]{2}/.test(x.en)).slice(0, 12);
   return { title: s(r && r.title).slice(0, 60) || "Listening", titleKo: s(r && r.title_ko).slice(0, 60), sents: sents,
-    qs: (Array.isArray(r && r.questions) ? r.questions : []).map(x => ({ q: s(x && x.q_ko).slice(0, 200), a: s(x && x.a_ko).slice(0, 200) })).filter(x => x.q).slice(0, 3),
+    qs: (Array.isArray(r && r.questions) ? r.questions : []).map(x => {
+      const q = { q: s(x && x.q_ko).slice(0, 200), a: s(x && x.a_ko).slice(0, 200), opts: [], ans: -1 };
+      const o = (Array.isArray(x && x.options_ko) ? x.options_ko : []).map(v => s(v).slice(0, 120)).filter(Boolean).slice(0, 4), k = Math.round(+(x && x.answer));
+      if (o.length >= 3 && k >= 0 && k < o.length && o.filter((v, i) => o.indexOf(v) === i).length === o.length) {     /* 보기를 섞어 정답 자리가 한쪽으로 몰리지 않게 */
+        const idx = o.map((v, i) => i); for (let i = idx.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)), t = idx[i]; idx[i] = idx[j]; idx[j] = t; }
+        q.opts = idx.map(i => o[i]); q.ans = idx.indexOf(k); if (!q.a) q.a = o[k];
+      }
+      return q; }).filter(x => x.q).slice(0, 3),
     words: (Array.isArray(r && r.words) ? r.words : []).map(x => ({ en: s(x && x.en).slice(0, 60), ko: s(x && x.ko).slice(0, 80) })).filter(x => x.en).slice(0, 5) };
 }
 /* 내 글 넣기: 붙여 넣은 영어 글을 문장으로 나눈다 (뜻과 풀이는 없다) */

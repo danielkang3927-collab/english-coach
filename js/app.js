@@ -265,9 +265,11 @@ function drawTrain() {
 const LIS_STEP = ["① 글 없이 듣기", "② 받아쓰기", "③ 글 보며 듣기", "④ 따라 말하기"];
 function lisStart(p, topic) {
   if (REC.on) return;
-  A = { type: "listen", title: "듣기 · " + p.title, p: p, topic: topic || "", step: 0, heard: 0, show: false, dict: lisPick(p.sents).map(i => ({ i: i, typed: "", res: null })), phase: "idle" };
+  A = { type: "listen", title: "듣기 · " + p.title, p: p, topic: topic || "", step: 0, heard: 0, show: false, pick: {}, dict: lisPick(p.sents).map(i => ({ i: i, typed: "", res: null })), phase: "idle" };
   loopStop(); speakStop(); go("train");
 }
+const lisQs = () => (A && A.p && A.p.qs || []).map((q, i) => ({ q: q, i: i })).filter(x => x.q.opts && x.q.opts.length);
+const lisQn = () => lisQs().length, lisQdone = () => lisQs().filter(x => A.pick[x.i] != null).length, lisQok = () => lisQs().filter(x => A.pick[x.i] === x.q.ans).length;
 function lisPick(sents) { const n = sents.length, k = Math.min(3, n), out = []; for (let j = 0; j < k; j++) { const i = Math.min(n - 1, Math.round((j + 0.5) * n / k - 0.5)); if (out.indexOf(i) < 0) out.push(i); } return out; }
 function lisAll(echo) { loopStart(A.p.sents.map(x => ({ en: x.en, role: "teacher" })), { rate: U.loopRate, echo: !!echo, forever: !!echo }); A.heard++; render(); }
 function drawListen() {
@@ -275,9 +277,14 @@ function drawListen() {
   let h = '<div class="ec-steps">' + LIS_STEP.map((n, i) => '<button class="ec-step' + (i < st ? " done" : "") + '" data-act="lisStep" data-arg="' + i + '"' + (i === st ? ' aria-current="step"' : "") + '><span>' + n + '</span><b>' + (i < st ? "✓" : i === st ? "지금" : "") + '</b></button>').join("") + '</div>';
   const player = (echo) => '<div class="ec-row">' + (LOOP.on ? btn("■ 멈춤", "loopStop") : btn(echo ? "▶ 따라 말하기 시작" : "▶ 전체 듣기", "lisPlay", echo ? "echo" : "")) + '</div><div id="ecLoopSt" class="' + (LOOP.on ? "ec-msg" : "") + '">' + (LOOP.on ? "읽는 중 " + (Math.min(LOOP.i, LOOP.list.length - 1) + 1) + " / " + LOOP.list.length : "") + '</div>';
   if (st === 0) {
-    h += card("① 글 없이 듣기", '<p class="ec-sub">글을 보지 말고 두 번 들어 보세요. 낱말 하나하나가 아니라 누가, 무엇을, 왜 했는지만 잡으면 됩니다. 처음에는 절반만 들려도 괜찮습니다.</p>' + player(false) +
+    h += card("① 글 없이 듣기", '<p class="ec-sub">글을 보지 말고 두 번 들어 보세요. 낱말 하나하나가 아니라 누가, 무엇을, 왜 했는지만 잡으면 됩니다. 듣고 나서 아래 질문의 답을 고르면 바로 채점합니다.</p>' + player(false) +
       '<p class="ec-sub">들은 횟수 ' + A.heard + '번</p>' +
-      (p.qs.length ? '<h3>들으면서 답을 찾아보세요</h3>' + p.qs.map((q, i) => '<p>' + (i + 1) + '. ' + esc(q.q) + (A.show ? '<br><span class="ec-sub">→ ' + esc(q.a) + '</span>' : "") + '</p>').join("") + (A.show ? "" : '<div class="ec-row">' + btn("답 확인", "lisShow", null, "ghost small") + '</div>') : "") +
+      (p.qs.length ? '<h3>듣고 나서 답을 골라 보세요</h3>' + p.qs.map((q, i) => { const pick = A.pick[i];
+        if (!(q.opts && q.opts.length)) return '<p>' + (i + 1) + '. ' + esc(q.q) + (A.show ? '<br><span class="ec-sub">→ ' + esc(q.a) + '</span>' : "") + '</p>';
+        return '<p><b>' + (i + 1) + '. ' + esc(q.q) + '</b></p><div class="ec-opts">' + q.opts.map((o, j) => '<button class="ec-opt' + (pick == null ? "" : j === q.ans ? " right" : j === pick ? " wrong" : "") + '" data-act="lisAns" data-arg="' + i + "|" + j + '"' + (pick == null ? "" : " disabled") + '>' + (pick == null ? "" : j === q.ans ? "✓ " : j === pick ? "✗ " : "") + esc(o) + '</button>').join("") + '</div>' +
+          (pick == null ? "" : '<p class="' + (pick === q.ans ? "s-good" : "s-bad") + '">' + (pick === q.ans ? "맞았습니다." : "틀렸습니다. 정답: " + esc(q.opts[q.ans])) + '</p>'); }).join("") +
+        (p.qs.some(q => !(q.opts && q.opts.length)) && !A.show ? '<div class="ec-row">' + btn("답 확인", "lisShow", null, "ghost small") + '</div>' : "") +
+        (lisQn() && lisQdone() === lisQn() ? '<div class="ec-msg">' + lisQn() + '문제 가운데 ' + lisQok() + '문제를 맞혔습니다.' + (lisQok() < lisQn() ? " 한 번 더 듣고 어디서 놓쳤는지 확인해 보세요." : "") + '</div>' : "") : "") +
       '<div class="ec-row end">' + btn("다음: 받아쓰기", "lisStep", "1") + '</div>');
   } else if (st === 1) {
     h += card("② 받아쓰기", '<p class="ec-sub">문장을 듣고 들리는 대로 적어 보세요. 여러 번 들어도 됩니다. 철자보다 낱말을 잡았는지가 중요합니다. 못 들은 낱말이 바로 귀가 아직 못 잡는 소리입니다.</p>' +
@@ -770,7 +777,7 @@ function recSummary(r) {
   if (r.k === "talk" || r.k === "retell") return "평균 " + r0(avg(r.s || [])) + " · " + esc(short(r.tx || "", 40));
   if (r.k === "phr" || r.k === "dr") return r.ok + " / " + r.n + " 맞음";
   if (r.k === "test") return r.lv + " · " + (r.score == null ? "–" : r.score.toFixed(1)) + "점";
-  if (r.k === "listen") return esc(r.title || "") + (r.dn ? " · 받아쓰기 " + r.dk + " / " + r.dn + " 낱말" : "");
+  if (r.k === "listen") return esc(r.title || "") + (r.qn ? " · 질문 " + r.qk + " / " + r.qn : "") + (r.dn ? " · 받아쓰기 " + r.dk + " / " + r.dn + " 낱말" : "");
   return esc(r.title || "") + " · 평균 " + r0(avg(r.s || []));
 }
 function recDetail(r) {
@@ -1013,14 +1020,15 @@ const ACT = {
     if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
     p.id = "L" + newId(); p.t = now(); p.topic = "내 글"; p.title = "내 글 · " + p.sents[0].en.split(" ").slice(0, 4).join(" "); lisSave(p); U.lisMsg = null; lisStart(p, "내 글"); },
   lisPlay: a => { if (!A || A.type !== "listen") return; lisAll(a === "echo"); },
+  lisAns: a => { if (!A || A.type !== "listen") return; const m = String(a).split("|"), i = +m[0], j = +m[1], q = A.p.qs[i]; if (!q || !q.opts || !(j >= 0 && j < q.opts.length) || A.pick[i] != null) return; const y = window.scrollY; A.pick[i] = j; render(); window.scrollTo(0, y); },
   lisShow: () => { if (A && A.type === "listen") { A.show = true; render(); } },
   lisStep: a => { if (!A || A.type !== "listen") return; const y = +a; if (!(y >= 0 && y <= 3)) return; loopStop(); speakStop(); A.step = y; render(); window.scrollTo(0, 0); },
   lisCheck: a => { if (!A || A.type !== "listen") return; const d = A.dict[+a]; if (!d) return; const y = window.scrollY; d.typed = String(U.f["dict" + a] || "").trim().slice(0, 300); d.res = lisDiff(A.p.sents[d.i].en, d.typed); render(); window.scrollTo(0, y); },
   lisDone: () => { if (!A || A.type !== "listen") return; loopStop(); speakStop();
     const dn = A.dict.filter(d => d.res).reduce((s, d) => s + d.res.n, 0), dk = A.dict.filter(d => d.res).reduce((s, d) => s + d.res.ok, 0);
-    logAdd({ k: "listen", title: A.p.title, topic: A.topic, n: A.p.sents.length, dn: dn, dk: dk, heard: A.heard, tx: A.p.sents.map(x => x.en).join(" ").slice(0, 900) });
+    logAdd({ k: "listen", title: A.p.title, topic: A.topic, n: A.p.sents.length, dn: dn, dk: dk, qn: lisQdone(), qk: lisQok(), heard: A.heard, tx: A.p.sents.map(x => x.en).join(" ").slice(0, 900) });
     [0, 1, 2].forEach(k => { U.f["dict" + k] = ""; });
-    A = null; pendSave(); U.lisMsg = { text: "듣기를 마쳤습니다." + (dn ? " 받아쓰기에서 낱말 " + dk + " / " + dn + "개를 들었습니다." : "") + " 며칠 뒤 「이어 듣기」에서 다시 들어 보세요." }; go("train"); },
+    const qn0 = lisQdone(), qk0 = lisQok(); A = null; pendSave(); U.lisMsg = { text: "듣기를 마쳤습니다." + (qn0 ? " 질문 " + qk0 + " / " + qn0 + "." : "") + (dn ? " 받아쓰기에서 낱말 " + dk + " / " + dn + "개를 들었습니다." : "") + " 며칠 뒤 「이어 듣기」에서 다시 들어 보세요." }; go("train"); },
   yestGo: () => { if (REC.on) return; const it = pickYest(3); if (!it.length) { U.shortMsg = { text: "구문을 한 번 익히면 다음 날부터 여기에 복습 문제가 나옵니다." }; render(); return; }
     if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
     A = null; U.tagSel = null; U.ordSel = null; U.shortMsg = null; startBatch("phr", it, "지난 문장 복습", null); if (A) A.again = true; },
