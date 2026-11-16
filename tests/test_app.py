@@ -363,6 +363,16 @@ def s17(b):
     ev(pg, "window.__fillBatch()"); click(pg, "bNext"); wait_phase(pg, "done", 30000)
     ev(pg, "(function(){ const r = dayRec(); r.st.dr = 2; r.st.talk = 1; daySave(); window.__ec.A = null; window.__ec.go('home'); })()")
     t.check("s17 세 단계를 마치면 오늘 루틴 끝 (다시 말하기를 요구하지 않음)", ev(pg, "nextStep()") is None and pg.locator(".ec-step.done").count() == 3 and handlers_ok(pg) == [])
+    # 누적 암송: 오늘 익힌 문장 + 어제 익힌 문장
+    click(pg, "tab", "phr")
+    t.check("s17 오늘 익힌 3문장으로 누적 암송 단추", "누적 암송 시작 (3문장)" in text(pg))
+    ev(pg, "(function(){ const ids = D.PHRASES.slice(20, 23).map(p => p.id); ids.forEach(id => { DB.srs[id] = { b: 1, d: today(), n: 1, k: 1, l: today() - 1 }; }); DB.srs[D.PHRASES[30].id] = { b: 2, d: today() + 2, n: 2, k: 2, l: today() - 2 }; window.__ec.go('phr'); })()")
+    t.check("s17 어제 익힌 것까지 얹고, 그제 것은 빼고, 어제 것이 먼저", "누적 암송 시작 (6문장)" in text(pg) and ev(pg, "pickCumul(20).slice(0,3).every(x => DB.srs[x.ref].l === today() - 1) && pickCumul(20).every(x => x.task === 'recall')"))
+    srs0 = ev(pg, "JSON.stringify(DB.srs)"); click(pg, "cumGo")
+    t.check("s17 누적 암송: 우리말만 보이고 정답은 가려짐", ev(pg, "window.__ec.A.items.length") == 6 and ev(pg, "window.__ec.A.again") is True and ev(pg, "window.__ec.A.items[0].en") not in text(pg) and "누적 암송" in text(pg))
+    ev(pg, "window.__fillBatch()"); click(pg, "bNext"); wait_phase(pg, "done", 40000)
+    t.check("s17 누적 암송은 복습 간격을 바꾸지 않고, 채점 뒤 정답이 보임", ev(pg, "JSON.stringify(DB.srs)") == srs0 and ev(pg, "window.__ec.A.res.length") == 6 and ev(pg, "window.__ec.A.items[0].en") in text(pg) and handlers_ok(pg) == [])
+    ev(pg, "(function(){ window.__ec.A = null; window.__ec.go('home'); })()")
     shot(pg, "p42_five")
     t.check("s17 오류 없음", not errs, errs); ctx.close()
 

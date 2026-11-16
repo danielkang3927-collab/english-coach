@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 22;
+const BUILD = 23;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -119,6 +119,13 @@ function srsMark(id, ok) {
   s.n++; s.l = d;
   if (ok) { s.k++; s.b = Math.min(6, s.b + 1); s.d = d + IV[s.b]; } else { s.b = 1; s.d = d + 1; }
   return s;
+}
+/* 누적 암송: 오늘과 어제 익힌 문장을 우리말만 보고 이어서 말한다 (어제 것부터). 날마다 새 문장에 어제 문장을 얹어 다시 해 보는 방식. */
+function pickCumul(max) {
+  const d = today(), by = {}; allPhrases().forEach(p => { by[p.id] = p; });
+  return Object.keys(DB.srs).filter(id => by[id] && DB.srs[id].n > 0 && DB.srs[id].l >= d - 1 && DB.srs[id].l <= d)
+    .sort((x, y) => DB.srs[x].l - DB.srs[y].l).slice(0, max || 20)
+    .map(id => ({ ref: id, task: "recall", ko: by[id].ko, en: by[id].en, focus: "" }));
 }
 function allPhrases() { return DB.my.map(p => ({ id: p.id, c: "my", en: p.en, ko: p.ko || "" })).concat(D.PHRASES); }
 function phraseState(id) { const s = DB.srs[id]; if (!s || !s.n) return "new"; return s.b >= 4 ? "known" : "learning"; }

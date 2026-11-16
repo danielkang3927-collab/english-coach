@@ -594,6 +594,9 @@ function drawPhrases() {
   let h = card("구문", '<div class="ec-scores">' + statCell("익힘", cnt.known) + statCell("연습 중", cnt.learning) + statCell("새 구문", cnt.new) + '</div><p class="ec-sub">문장을 만들지 말고 덩어리째 꺼내 쓰는 연습입니다. 맞히면 1·3·7·14·30·60일 뒤에 다시 묻고, 네 번 이어 맞히면 「익힘」입니다.</p>' +
     btn(due ? "오늘 복습 시작 (복습할 것 " + due + "개)" : "새 구문 익히기", "start", "phr", "wide"));
   const fx = fixList();
+  const cu = pickCumul(20);
+  h += card("누적 암송 (오늘 + 어제)", '<p class="ec-sub">오늘 익힌 문장에 어제 익힌 문장을 얹어, 우리말만 보고 이어서 말해 봅니다. 정답은 채점한 뒤에 나옵니다. 자기 전에 한 번 하면 좋습니다. 복습 간격은 바뀌지 않습니다.</p>' +
+    btn(cu.length ? "누적 암송 시작 (" + cu.length + "문장)" : "오늘·어제 익힌 문장이 아직 없습니다", "cumGo", null, cu.length ? "" : "ghost"));
   h += card("틀렸던 문장 다시 말하기", '<p class="ec-sub">대화·다시 말하기·레벨 테스트에서 선생님이 고쳐 준 문장은 자동으로 내 구문에 담깁니다. 처음에는 듣고 따라 말하고, 다음부터는 틀렸던 말을 보고 바른 문장으로 말합니다. 입에 붙을 때까지 1·3·7·14·30·60일 간격으로 다시 나옵니다.</p>' +
     '<div class="ec-row">' + btn(fx.length ? "틀렸던 문장 훈련 (" + fx.length + "개 중 " + Math.min(8, fx.length) + "개)" : "아직 고친 문장이 없습니다", "fixGo", null, fx.length ? "" : "ghost") + btn("지난 기록에서 모으기", "fixScan", null, "ghost small") + '</div>' + msgBox(U.fixMsg));
   h += card("내 구문 담기", '<label for="ecPhEn">영어</label><input type="text" id="ecPhEn" data-bind="phEn" value="' + esc(U.f.phEn) + '" placeholder="예: Let me pray for you."><label for="ecPhKo">우리말 뜻</label><input type="text" id="ecPhKo" data-bind="phKo" value="' + esc(U.f.phKo) + '" placeholder="예: 제가 기도해 드릴게요.">' +
@@ -811,6 +814,9 @@ const ACT = {
   ordDrill: a => { U.back = null; if (A && hasWork(A)) { ACT.start("dr"); return; } A = null; startBatch("dr", orderDrills(a), "어순 훈련", null); },
   /* 구문 */
   phCat: a => { U.phCat = a; U.delAsk = null; render(); },
+  cumGo: () => { if (REC.on) return; const it = pickCumul(20); if (!it.length) return;
+    if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
+    A = null; U.tagSel = null; U.ordSel = null; startBatch("phr", it, "누적 암송", null); if (A) A.again = true; },
   fixGo: () => { if (REC.on) return; if (!fixList().length) { U.fixMsg = { text: "아직 고친 문장이 없습니다. 대화나 다시 말하기를 하면 여기에 모입니다." }; render(); return; }
     if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
     A = null; U.tagSel = null; U.ordSel = null; U.fixMsg = null; startBatch("phr", pickFix(8), "틀렸던 문장 다시 말하기", null); },
