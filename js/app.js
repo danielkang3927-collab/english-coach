@@ -243,8 +243,8 @@ function drawBatch() {
   else h += '<div class="ec-task en">' + esc(it.en) + ' ' + say(it.en) + '<small>' + esc(it.ko) + '</small></div>';
   if (shown) {
     const c = A.clips[A.i];
-    if (it.task === "recall" || it.task === "translate") h += '<div class="ec-answer"><small>이렇게 말하면 됩니다</small>' + esc(it.en) + ' ' + say(it.en) + '</div>';
-    h += '<div class="ec-kv">내 녹음 ' + c.m.speech.toFixed(1) + '초' + (c.m.st != null ? ' · 높낮이 폭 ' + c.m.st.toFixed(1) + '반음' : "") + ' — 정답과 스스로 비교해 보세요.</div>';
+    const hid = it.task === "recall" || it.task === "translate";     /* 스스로 떠올려 말하는 문제는 채점 전에 정답을 보여 주지 않는다 */
+    h += '<div class="ec-kv">내 녹음 ' + c.m.speech.toFixed(1) + '초' + (c.m.st != null ? ' · 높낮이 폭 ' + c.m.st.toFixed(1) + '반음' : "") + (hid ? ' — 정답은 채점한 뒤에 보여 드립니다.' : ' — 들은 소리와 스스로 비교해 보세요.') + '</div>';
     h += '<div class="ec-row">' + btn("다시 녹음", "bRedo", null, "ghost") + btn(A.i + 1 < n ? "다음 →" : "채점 보내기", "bNext") + '</div>';
   } else h += recBtn();
   h += noteHtml();
@@ -256,7 +256,7 @@ function batchRec() {
   recStart(20, (pcm, m) => {
     if (m.speech < 0.3) { render(); setMsg("소리가 잡히지 않았습니다. 조금 더 크게, 다시 녹음해 주세요.", true); return; }
     A.clips[A.i] = clipOf(pcm, m); A.phase = "shown"; pendSave(); setMsg(""); render();
-    if (DB.set.autoSpeak) speak(it.en);
+    if (DB.set.autoSpeak && it.task !== "recall" && it.task !== "translate") speak(it.en);
   });
 }
 const FOCUS_EN = { d_flat: "flat intonation: stress the key words and move the pitch", d_pause: "too many pauses: say it in one or two breath groups", d_slow: "slow speed: say it smoothly at a natural pace" };
