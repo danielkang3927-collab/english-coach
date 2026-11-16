@@ -75,6 +75,7 @@ MOCK = r"""
       if(url.indexOf("/user/subscription") >= 0) return js(200, {character_count:120, character_limit:10000});
       if(url.indexOf("/text-to-speech/") >= 0){
         if(X.mode === "quota") return js(401, {detail:{status:"quota_exceeded", message:"quota"}});
+        if(X.bad && url.indexOf("/text-to-speech/" + X.bad) >= 0) return js(400, {detail:{status:"voice_not_allowed", message:"This voice is not available on your plan"}});
         X.tts.push({voice:url.split("/text-to-speech/")[1].split("?")[0], body:JSON.parse(opt.body)});
         return Promise.resolve(new Response(new Uint8Array(600).buffer, {status:200}));
       }

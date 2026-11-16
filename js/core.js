@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 20;
+const BUILD = 22;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -42,7 +42,7 @@ function dbLoad() {
   if (isMap(day)) Object.keys(day).forEach(d => { const r = day[d]; if (!isMap(r) || !/^\d+$/.test(d)) return; const st = isMap(r.st) ? r.st : {}; DB.day[d] = { sec: +r.sec || 0, said: +r.said || 0, st: { phr: +st.phr || 0, dr: +st.dr || 0, talk: +st.talk || 0, retell: +st.retell || 0 } }; });
   DB.miss = miss && typeof miss === "object" && !Array.isArray(miss) ? miss : {};
   DB.set = { minutes: 30, autoSpeak: true };
-  if (set && typeof set === "object") { if ([15, 30, 60].indexOf(set.minutes) >= 0) DB.set.minutes = set.minutes; if (set.autoSpeak === false) DB.set.autoSpeak = false; }
+  if (set && typeof set === "object") { if ([5, 15, 30, 60].indexOf(set.minutes) >= 0) DB.set.minutes = set.minutes; if (set.autoSpeak === false) DB.set.autoSpeak = false; }
   return migrate();
 }
 function dbSave(name) {
@@ -426,14 +426,42 @@ function xiPlay(buf, type) {
 const ttsHash = t => { let h = 7; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0; return h; };
 /* 선생님(대화)은 늘 같은 목소리, 나머지 문장은 여러 목소리. 같은 문장은 늘 같은 목소리라 저장해 둔 것을 다시 쓴다. */
 function xiVoiceFor(t, role) { const pool = XI.pool.length ? XI.pool : [XI.voice]; return role === "teacher" ? XI.voice : pool[ttsHash(t) % pool.length]; }
-function xiSay(t, role, my) {
-  const voice = xiVoiceFor(t, role), id = "tts:" + voice + ":" + t;
+function xiDropVoice(v) { const i = XI.pool.indexOf(v); if (i >= 0 && v !== XI.voice) { XI.pool.splice(i, 1); if (XI.poolNames) XI.poolNames.splice(i, 1); store.set("ec_xipool", JSON.stringify(XI.pool)); store.set("ec_xipooln", JSON.stringify(XI.poolNames || [])); } }
+/* 소리 한 개를 구한다: 기기에 있으면 그것, 없으면 ElevenLabs에서 만들어 기기에 저장. 묶음 목소리가 이 계정에서 안 되면 그 목소리를 빼고 선생님 목소리로 만든다. */
+function xiBuf(t, role, voice0) {
+  const voice = voice0 || xiVoiceFor(t, role), id = "tts:" + voice + ":" + t;
   return idbGet(id).catch(() => null).then(buf => {
-    if (buf && buf.byteLength > 200) { XI.stats.hit++; return buf; }
+    if (buf && buf.byteLength > 200) { XI.stats.hit++; return { buf, made: false }; }
     return fetchT(XI_BASE + "text-to-speech/" + voice + "?output_format=mp3_44100_128", { method: "POST", headers: { "xi-api-key": XI.key, "Content-Type": "application/json" }, body: JSON.stringify({ text: t, model_id: XI_MODEL }) }, 7000)
-      .then(res => { if (!res.ok) return res.text().then(tx => { const e = new Error(xiErr(res.status, tx)); e.quota = /크레딧을 다 썼/.test(e.message); throw e; }); return res.arrayBuffer(); })
-      .then(b => { XI.stats.net++; idbSet(id, b).catch(() => {}); return b; });
-  }).then(buf => { if (my !== XI.seq) return true; XI.note = ""; return xiPlay(buf); });
+      .then(res => { if (!res.ok) return res.text().then(tx => { const e = new Error(xiErr(res.status, tx)); e.status = res.status; e.quota = /크레딧을 다 썼/.test(e.message); throw e; }); return res.arrayBuffer(); })
+      .then(b => { XI.stats.net++; idbSet(id, b).catch(() => {}); return { buf: b, made: true }; }, e => {
+        if (e && e.status >= 400 && e.status < 500 && e.status !== 429 && !e.quota && voice !== XI.voice && XI.voice) { xiDropVoice(voice); return xiBuf(t, "teacher", XI.voice); }
+        throw e;
+      });
+  });
+}
+function xiSay(t, role, my) { return xiBuf(t, role).then(x => { if (my !== XI.seq) return true; XI.note = ""; return xiPlay(x.buf); }); }
+/* 앱에 들어 있는 문장 전부 (구문 → 내 구문 → 훈련 문장 순). 미리 받아 두면 들을 때 크레딧이 들지 않는다. */
+const ttsNorm = x => String(x).replace(/\s*\/\s*/g, " ").replace(/\s+/g, " ").trim();
+function ttsTexts() {
+  const seen = {}, out = [], add = x => { const t = ttsNorm(x); if (t && t.length <= XI_MAX && /[A-Za-z]/.test(t) && !seen[t]) { seen[t] = 1; out.push(t); } };
+  D.PHRASES.forEach(p => add(p.en)); DB.my.forEach(p => add(p.en));
+  const walk = o => { if (!o || typeof o !== "object") return; if (typeof o.en === "string") add(o.en); if (Array.isArray(o.ex)) o.ex.forEach(x => { if (typeof x === "string") add(x); }); Object.keys(o).forEach(k => walk(o[k])); };
+  walk(D.ORDER); walk(D.TAGS);
+  return out;
+}
+function ttsPrefetch(onProg) {
+  if (XI.pre && XI.pre.on) return;
+  const list = ttsTexts(), P = XI.pre = { on: true, n: list.length, i: 0, made: 0, chars: 0, msg: "", stop: false };
+  const end = msg => { P.on = false; P.msg = msg; if (onProg) onProg(); };
+  const step = () => {
+    if (P.stop) { end("멈췄습니다. " + P.i + " / " + P.n + "개까지 기기에 있습니다."); return; }
+    if (P.i >= P.n) { end("문장 " + P.n + "개가 모두 기기에 저장되어 있습니다. (이번에 새로 만든 것 " + P.made + "개 · " + P.chars.toLocaleString() + "자)"); return; }
+    const t = list[P.i];
+    xiBuf(t).then(x => { P.i++; if (x.made) { P.made++; P.chars += t.length; } if (onProg && (x.made || P.i % 10 === 0)) onProg(); setTimeout(step, x.made ? 250 : 0); },
+      e => { if (e && e.quota) ttsOff("x", 6 * 3600000); XI.note = String(e && e.message || e); end(P.i + " / " + P.n + "개까지 받았습니다. " + XI.note); });
+  };
+  step();
 }
 /* Gemini 목소리: ElevenLabs 크레딧이 떨어졌을 때 대신 읽는다. 이것도 안 되면 기기 목소리. */
 const GT = { off: 0, note: "", models: ["gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts"], teacher: "Achird", pool: ["Kore", "Puck", "Charon", "Aoede", "Leda", "Orus"], stats: { net: 0, hit: 0 } };
@@ -464,7 +492,7 @@ function ttsOff(k, ms) { const u = Date.now() + ms; if (k === "x") XI.off = u; e
 function speak(text, role) {
   if (!XI.key) return speakDevice(text);
   ttsPrime();
-  const t = String(text).replace(/\s*\/\s*/g, " ").replace(/\s+/g, " ").trim();
+  const t = ttsNorm(text);
   try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
   const my = ++XI.seq, short = t && t.length <= XI_MAX;
   const viaG = () => (short && G.key && Date.now() > GT.off) ? gtSay(t, role, my).catch(e => { GT.note = String(e && e.message || e); ttsOff("g", 30 * 60000); return false; }) : Promise.resolve(false);
@@ -543,6 +571,15 @@ function fetchT(url, opt, ms) {
   if (ctl) { opt.signal = ctl.signal; timer = setTimeout(() => { try { ctl.abort(); } catch (e) {} }, ms); }
   return fetch(url, opt).then(r => { if (timer) clearTimeout(timer); return r; }, e => { if (timer) clearTimeout(timer); throw e; });
 }
+/* 답의 본문을 다 받을 때까지를 시간 제한에 넣는다 (머리말만 오고 본문이 멈추는 경우에도 끊긴다) */
+function fetchTx(url, opt, ms) {
+  const ctl = (typeof AbortController !== "undefined") ? new AbortController() : null; let timer = null;
+  if (ctl) { opt.signal = ctl.signal; timer = setTimeout(() => { try { ctl.abort(); } catch (e) {} }, ms); }
+  const off = () => { if (timer) clearTimeout(timer); };
+  return fetch(url, opt).then(r => r.text().then(tx => ({ status: r.status, ok: r.ok, tx }))).then(x => { off(); return x; }, e => { off(); throw e; });
+}
+const G_ACTIVE = [];
+function gCancelAll() { G_ACTIVE.splice(0).forEach(h => { try { h.cancel(); } catch (e) {} }); }
 /* req: {sys, parts, temp}. status(글): 진행 안내. done(답 객체, 모델 이름). fail(이유, 종류: net 연결 · quota 한도 · 그 밖). */
 const G_WAIT = 50000;                                /* 한 모델을 기다리는 가장 긴 시간 */
 function gCall(req, status, done0, fail0) {
@@ -550,8 +587,10 @@ function gCall(req, status, done0, fail0) {
   /* 답이 늦으면 기다리지 않고 다음 모델에도 함께 보낸다. 먼저 온 답을 쓰고, 늦은 모델은 한동안 건너뛴다. */
   let settled = false, hedgeT = null; const live = {};
   const liveN = () => Object.keys(live).length;
-  const done = (r, model) => { if (settled) return; settled = true; clearTimeout(hedgeT); Object.keys(live).forEach(m => { if (m !== model) gSlow(m); }); if (G.onChain) G.onChain(); done0(r, model); };
-  const fail = (why, kind) => { if (settled) return; if (liveN() > 0) return; settled = true; clearTimeout(hedgeT); fail0(why, kind); };
+  const handle = { cancel: () => { settled = true; clearTimeout(hedgeT); } }; G_ACTIVE.push(handle);
+  const gone = () => { const i = G_ACTIVE.indexOf(handle); if (i >= 0) G_ACTIVE.splice(i, 1); };
+  const done = (r, model) => { if (settled) return; settled = true; gone(); clearTimeout(hedgeT); Object.keys(live).forEach(m => { if (m !== model) gSlow(m); }); if (G.onChain) G.onChain(); done0(r, model); };
+  const fail = (why, kind) => { if (settled) return; if (liveN() > 0) return; settled = true; gone(); clearTimeout(hedgeT); fail0(why, kind); };
   const nAudio = (req.parts || []).filter(p => p && p.inlineData).length, hedgeMs = G.hedgeMs || (12000 + 2500 * nAudio);
   const body = JSON.stringify({
     systemInstruction: { parts: [{ text: req.sys }] },
@@ -575,9 +614,9 @@ function gCall(req, status, done0, fail0) {
       const more = gOrder().filter(gFree).filter(n => tried.indexOf(n) < 0);
       if (more.length) { status("「" + model + "」의 답이 늦어 「" + more[0] + "」에도 함께 보내는 중…"); run(); }
     }, hedgeMs);
-    fetchT(G_BASE + "models/" + encodeURIComponent(model) + ":generateContent", {
+    fetchTx(G_BASE + "models/" + encodeURIComponent(model) + ":generateContent", {
       method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": G.key }, body
-    }, G_WAIT).then(res => res.text().then(tx => {
+    }, G_WAIT).then(res => Promise.resolve(res.tx).then(tx => {
       delete live[model]; if (settled) return;
       const next = why => { if (liveN() > 0) return; next0(why); };          /* 함께 보낸 다른 모델이 아직 답하는 중이면 그쪽을 기다린다 */
       if (res.status === 404) { G.dead[model] = 1; if (liveN() > 0) return; status("「" + model + "」을 쓸 수 없어 다른 모델을 찾는 중…"); gList(() => run(), fail); return; }
@@ -611,6 +650,7 @@ function gCall(req, status, done0, fail0) {
     });
   }
   next0("");
+  return handle;
 }
 
 /* ---------- 선생님에게 주는 지시문 ---------- */

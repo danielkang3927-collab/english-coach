@@ -20,7 +20,7 @@ const msgBox = m => m ? '<div class="ec-msg' + (m.err ? " err" : "") + '">' + es
 const waitHtml = () => '<p class="ec-sub" id="ecWait"></p>';          /* 보내는 동안 몇 초째인지 (1초마다 채운다) */
 const noteHtml = () => '<div id="ecMsg" class="' + (U.note ? "ec-msg" + (U.note.err ? " err" : "") : "") + '">' + (U.note ? esc(U.note.text) : "") + '</div>';
 function setMsg(text, err) {
-  if (A && A.phase === "sending" && text && !err) A.prog = text;       /* 다른 화면에 갔다 와도 진행 안내가 남게 */
+  if (A && A.phase === "sending" && text && !err) { A.prog = text; A.progAt = Date.now(); }       /* 다른 화면에 갔다 와도 진행 안내가 남게 */
   U.note = text ? { text, err: !!err } : null;
   const el = $("ecMsg"); if (el) { el.className = text ? "ec-msg" + (err ? " err" : "") : ""; el.textContent = text || ""; }
 }
@@ -128,7 +128,7 @@ function drawHome() {
   const ns = nextStep(), st = streak();
   let t = '<div class="ec-row between"><b class="ec-today">' + Math.floor(min) + '분 <span class="ec-sub">/ ' + goal + '분</span></b><span class="ec-sub">말한 문장 ' + r.said + '개 · 연속 ' + st + '일</span></div>';
   t += '<div class="ec-bar"><i style="width:' + clamp(Math.round(min / goal * 100), 0, 100) + '%"></i></div>';
-  t += '<div class="ec-steps">' + ["phr", "dr", "talk", "retell"].map(k => {
+  t += '<div class="ec-steps">' + ["phr", "dr", "talk", "retell"].filter(k => p[k] > 0).map(k => {
     const done = stepDone(k);
     return '<button class="ec-step' + (done ? " done" : "") + '" data-act="start" data-arg="' + k + '"><span>' + STEP_NAME[k] + '</span><b>' + (done ? "✓ " : "") + Math.min(r.st[k], 99) + ' / ' + p[k] + '</b></button>';
   }).join("") + '</div>';
@@ -264,14 +264,28 @@ function batchSend() {
   const me = A; me.items = me.items.slice(0, me.clips.length);
   const n = me.items.length; if (!n) return;
   me.phase = "sending"; me.quitAsk = false; me.failMsg = ""; pendSave(); setMsg(""); render();
-  const parts = [{ text: "MODE: batch\n" + profileText() + "\nThere are " + n + " items." }];
-  me.items.forEach((it, i) => {
-    parts.push({ text: "ITEM " + (i + 1) + " | TASK " + it.task + " | TARGET: " + it.en + " | FOCUS: " + (it.focus ? it.focus + " (" + (TAG_EN[it.focus] || FOCUS_EN[it.focus] || "") + ")" : "none") });
-    parts.push({ inlineData: { mimeType: "audio/wav", data: me.clips[i].b64 } });
-  });
-  gCall({ sys: sysFor("batch"), parts, temp: 0.2 }, s => { if (A === me) setMsg(s); }, (r, model) => {
+  /* 녹음을 세 개씩 나눠 보낸다. 한 번에 보내는 양이 작아야 느린 연결에서도 끊기지 않고, 끊겨도 받은 데까지는 남는다. */
+  if (!Array.isArray(me.part) || me.part.length > n) me.part = [];
+  const CH = 3;
+  const step = () => {
     if (A !== me) return;
-    const res = cleanBatch(r, n);
+    const from = me.part.length;
+    if (from >= n) { finish(); return; }
+    const k = Math.min(n, from + CH) - from;
+    setMsg("채점 중 " + from + " / " + n + "…");
+    const parts = [{ text: "MODE: batch\n" + profileText() + "\nThere are " + k + " items." }];
+    for (let j = 0; j < k; j++) {
+      const it = me.items[from + j];
+      parts.push({ text: "ITEM " + (j + 1) + " | TASK " + it.task + " | TARGET: " + it.en + " | FOCUS: " + (it.focus ? it.focus + " (" + (TAG_EN[it.focus] || FOCUS_EN[it.focus] || "") + ")" : "none") });
+      parts.push({ inlineData: { mimeType: "audio/wav", data: me.clips[from + j].b64 } });
+    }
+    gCall({ sys: sysFor("batch"), parts, temp: 0.2 }, s => { if (A === me) setMsg(s + " (" + from + " / " + n + ")"); }, (r, model) => {
+      if (A !== me || me.phase !== "sending") return;
+      me.part = me.part.concat(cleanBatch(r, k)); me.md = model; pendSave(); step();
+    }, (why, kind) => { if (A === me && me.phase === "sending") failed(me, why + (me.part.length ? " (" + me.part.length + "개까지는 채점해 두었습니다.)" : ""), kind); });
+  };
+  const finish = () => {
+    const res = me.part, model = me.md || ""; me.part = [];
     me.items.forEach((it, i) => {
       const x = res[i], m = me.clips[i].m, words = wc(x.heard);
       if (x.heard && DEVICE_TAGS[it.focus]) {      /* 전달 훈련은 기기 측정으로 판정 */
@@ -288,7 +302,8 @@ function batchSend() {
     const day = dayRec(); if (me.step) day.st[me.step] += n; day.said += res.filter(x => x.heard).length; daySave();
     me.res = res; me.phase = "done";
     if (arrived(me.title + " 채점이 끝났습니다.")) window.scrollTo(0, 0);
-  }, (why, kind) => { if (A === me) failed(me, why, kind); });
+  };
+  step();
 }
 function drawBatchDone() {
   const ok = A.res.filter(x => x.ok).length, n = A.res.length, wrong = n - ok;
@@ -687,6 +702,9 @@ function drawXi() {
     (XI.voices.length ? XI.voices : (XI.voice ? [{ id: XI.voice, name: XI.name, gender: "", accent: "" }] : [])).map(v => '<option value="' + esc(v.id) + '"' + (v.id === XI.voice ? " selected" : "") + '>' + esc(v.name) + (v.gender || v.accent ? " · " + esc([v.gender === "male" ? "남자" : (v.gender === "female" ? "여자" : v.gender), v.accent].filter(Boolean).join(" · ")) : "") + '</option>').join("") + '</select>';
   h += '<p class="ec-sub">대화의 선생님은 늘 이 목소리로 말하고, 구문·훈련 문장은 목소리 ' + (XI.pool.length || 1) + '가지' + (XI.poolNames.length ? " (" + esc(XI.poolNames.join(", ")) + ")" : "") + '가 번갈아 읽습니다. 같은 문장은 늘 같은 목소리라 크레딧이 다시 들지 않습니다. 크레딧이 떨어지면 Gemini 목소리 → 기기 목소리 순서로 넘어가고, 다음 달에 다시 차면 자동으로 돌아옵니다.</p>';
   if (GT.note && XI.note) h += '<div class="ec-msg err">' + esc(GT.note) + '</div>';
+  { const P = XI.pre, all = ttsTexts(), ch = all.reduce((n, t) => n + t.length, 0);
+    h += '<div class="ec-row">' + (P && P.on ? btn("받는 중 " + P.i + " / " + P.n + " · 멈추기", "xiPreStop", null, "ghost") : btn("문장 소리 모두 미리 받기 (" + all.length + "문장)", "xiPre", null, "ghost")) + '</div>' +
+      '<p class="ec-sub">구문·내 구문·훈련 문장을 ElevenLabs로 한 번 만들어 이 기기에 저장합니다. 그 뒤로는 들을 때 크레딧이 들지 않습니다. 전부 처음 받으면 약 ' + ch.toLocaleString() + '자(크레딧 ' + Math.round(ch / 2).toLocaleString() + '~' + ch.toLocaleString() + ')가 들고, 이미 받은 문장은 건너뜁니다. 기기마다 따로 받아야 합니다.</p>' + (P && P.msg && !P.on ? '<div class="ec-msg">' + esc(P.msg) + '</div>' : ''); }
   if (XI.limit) h += '<p class="ec-sub">이번 달 사용 ' + XI.used.toLocaleString() + ' / ' + XI.limit.toLocaleString() + ' 크레딧</p>';
   if (XI.note) h += '<div class="ec-msg err">' + esc(XI.note) + '</div>';
   return h + '<div class="ec-row">' + btn("목록·사용량 새로 받기", "xiRefresh", null, "ghost small") + btn("키 지우기", "xiDel", null, "ghost small") + '</div>' + msgBox(U.xiMsg);
@@ -722,7 +740,7 @@ function drawSettings() {
   if (order.length) g += '<label for="ecGModelPick">먼저 쓸 모델</label><select id="ecGModelPick" data-chg="gmodel"><option value=""' + (G.model ? "" : " selected") + '>자동 (가장 좋은 모델부터)</option>' + G.chain.map(n => '<option value="' + esc(n) + '"' + (n === G.model ? " selected" : "") + '>' + esc(n) + '</option>').join("") + '</select>' +
     '<div class="ec-sub ec-gap">쓰는 순서 (막히면 자동으로 다음 모델)</div><ol class="ec-ol">' + order.map(n => '<li>' + esc(n) + ' <span class="ec-sub">— ' + gStateOf(n) + '</span></li>').join("") + '</ol><div class="ec-row">' + btn("한도 기록 지우고 다시 시도", "gReset", null, "ghost small") + '</div>';
   let h = card("선생님 연결 (Gemini)", g);
-  h += card("하루 목표", '<div class="ec-seg">' + [15, 30, 60].map(m => '<button data-act="minutes" data-arg="' + m + '" aria-pressed="' + (DB.set.minutes === m) + '">' + m + '분</button>').join("") + '</div><p class="ec-sub">' + DB.set.minutes + '분이면 하루에 구문 ' + PLAN().phr + '개, 훈련 ' + PLAN().dr + '문장, 대화 ' + PLAN().talk + '번, 다시 말하기 ' + PLAN().retell + '번입니다. 주 6일 기준 한 단계에 ' + planMonths(200) + '.</p>');
+  h += card("하루 목표", '<div class="ec-seg">' + [5, 15, 30, 60].map(m => '<button data-act="minutes" data-arg="' + m + '" aria-pressed="' + (DB.set.minutes === m) + '">' + m + '분</button>').join("") + '</div><p class="ec-sub">' + DB.set.minutes + '분이면 하루에 구문 ' + PLAN().phr + '개, 훈련 ' + PLAN().dr + '문장, 대화 ' + PLAN().talk + '번' + (PLAN().retell ? ', 다시 말하기 ' + PLAN().retell + '번' : '') + '입니다.' + (DB.set.minutes === 5 ? ' 짧게 매일 하는 과정입니다. 하루 목표는 이 기기에만 적용되어 사람마다 다르게 고를 수 있습니다.' : '') + ' 주 6일 기준 한 단계에 ' + planMonths(200) + '.</p>');
   h += card("소리", '<label class="ec-check"><input type="checkbox" id="ecAuto" data-chg="auto"' + (DB.set.autoSpeak ? " checked" : "") + '> 선생님 말과 정답을 자동으로 읽어 주기</label><p class="ec-sub">' + (XI.key && XI.voice ? "지금 읽어 주는 목소리: ElevenLabs " + esc(XI.name) + ". 막히면 기기 목소리로 읽습니다." : "읽어 주는 목소리는 기기에 들어 있는 영어 음성입니다.") + '</p>' + btn("목소리 들어 보기", "voice", null, "ghost small") + drawXi());
   h += drawSyncCard();
   h += '<p class="ec-ver">영어 말하기 코치 v' + BUILD + ' · 설계 문서 SPEC.md</p>';
@@ -736,6 +754,8 @@ const ACT = {
   bottom: () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" }),
   xiSave: () => { const k = String(U.f.xiKey || "").trim(); if (k.length < 20) { U.xiMsg = { text: "ElevenLabs 키를 붙여 넣어 주세요.", err: true }; render(); return; } xiUnlock(); xiSetup(k, true); },
   xiRefresh: () => { xiSetup(XI.key, false); },
+  xiPre: () => { if (!XI.key || !XI.voice) return; XI.off = 0; store.del("ec_xioff"); ttsPrefetch(() => { if (U.tab === "set") render(); }); render(); },
+  xiPreStop: () => { if (XI.pre) XI.pre.stop = true; },
   xiDel: () => { speakStop(); xiClear(); keyTouch("x"); U.xiMsg = { text: "ElevenLabs 키를 지웠습니다. 기기 목소리로 읽습니다." }; render(); },
   say: a => { const t = SAY[+a]; if (t && t.t) speak(t.t, t.role); else if (t) speak(t); },
   voice: () => { if (!speak("Hello. I am your English coach. Let's practice together.", "teacher")) { U.gmsg = { text: "이 브라우저는 읽어 주기를 지원하지 않습니다.", err: true }; render(); } },
@@ -829,7 +849,7 @@ const ACT = {
   },
   gClear: () => { G.key = ""; U.f.gkey = ""; store.del("ec_gkey"); keyTouch("g"); U.gmsg = { text: "키를 지웠습니다." + (AUTH.uid ? " 로그인한 다른 기기에서도 지워집니다." : "") }; render(); },
   gReset: () => { gReset(); U.gmsg = { text: "한도 기록을 지웠습니다. 다음 요청부터 가장 좋은 모델로 다시 시도합니다." }; render(); },
-  minutes: a => { const m = +a; if ([15, 30, 60].indexOf(m) >= 0) { DB.set.minutes = m; dbSave("set"); render(); } },
+  minutes: a => { const m = +a; if ([5, 15, 30, 60].indexOf(m) >= 0) { DB.set.minutes = m; dbSave("set"); render(); } },
   miss: a => { const w = weekNo(today()), m = DB.miss[w] || (DB.miss[w] = {}); m[a] = m[a] > 0 ? -now() : now(); dbSave("miss"); syncSoon(); render(); },
   flash: () => { U.flash = null; go("train"); },
   /* 구글 로그인 */
@@ -866,16 +886,22 @@ document.addEventListener("input", e => { const k = e.target.getAttribute && e.t
 setInterval(() => {
   let speaking = false; try { speaking = !!(window.speechSynthesis && window.speechSynthesis.speaking); } catch (e) {}
   const turned = beat(REC.on || !!(A && A.phase === "sending") || speaking);
+  if (A && A.phase === "sending" && A.t0 && Date.now() - Math.max(A.t0, A.progAt || 0) > 100000) {   /* 100초 동안 아무 진전이 없으면 멈추고 다시 보낼 수 있게 한다 */
+    gCancelAll(); failed(A, "선생님의 답이 너무 오래 오지 않아 멈췄습니다. 녹음은 그대로 있습니다. 「다시 보내기」를 눌러 주세요.", "net");
+  }
   if (A && A.phase === "sending") { if (!A.t0) A.t0 = Date.now(); const w = $("ecWait"); if (w) w.textContent = Math.round((Date.now() - A.t0) / 1000) + "초째 기다리는 중"; } else if (A && A.t0) A.t0 = 0;
   if (turned && U.tab === "home" && !REC.on) render();
 }, 1000);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {                           /* 떠날 때: 녹음은 거기까지 담고, 시간 세기를 멈춘다 */
-    daySave();
+    daySave(); U.hidAt = Date.now();
     if (REC.on) { recStop(); setMsg("다른 화면으로 나가서 녹음을 거기까지만 담았습니다."); }
     return;
   }
-  if (A && A.phase === "fail" && A.failKind === "net" && !A.autoTried && G.key) { A.autoTried = true; if (U.tab === "train") setMsg("돌아와서 이어서 보냅니다…"); resumeSend(); }
+  if (A && A.phase === "sending" && U.hidAt && Date.now() - U.hidAt > 20000 && G.key) {   /* 오래 나갔다 오면 보내던 요청이 멈춰 있을 수 있어, 끊고 받은 데부터 다시 보낸다 */
+    gCancelAll(); A.t0 = Date.now(); A.progAt = 0; if (U.tab === "train") setMsg("돌아와서 이어서 보냅니다…"); resumeSend();
+  }
+  else if (A && A.phase === "fail" && A.failKind === "net" && !A.autoTried && G.key) { A.autoTried = true; if (U.tab === "train") setMsg("돌아와서 이어서 보냅니다…"); resumeSend(); }
   else render();
   if (Date.now() - SYNC.last > 120000) syncSoon(800);
 });

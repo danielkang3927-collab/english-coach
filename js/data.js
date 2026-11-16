@@ -228,6 +228,6 @@ const D = (function(){
     {id:"m_bless", t:"영어 축도를 외워서 말하기"}
   ];
 
-  const PLAN = {15:{phr:5, dr:4, talk:2, retell:1}, 30:{phr:8, dr:6, talk:4, retell:2}, 60:{phr:10, dr:8, talk:6, retell:3}};
+  const PLAN = {5:{phr:3, dr:2, talk:1, retell:0}, 15:{phr:5, dr:4, talk:2, retell:1}, 30:{phr:8, dr:6, talk:4, retell:2}, 60:{phr:10, dr:8, talk:6, retell:3}};
   return {TAGS, TAG_IDS, ORDER, CATS, PHRASES, SCENES, TEST, MISSIONS, PLAN};
 })();
