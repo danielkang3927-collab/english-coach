@@ -678,6 +678,8 @@ def s22(b):
     r2 = ev(pg, "new Promise(res => { gReset(); window.__mock.plan = ['garble', 'garble']; gCall({ sys: sysFor('talk'), parts: [{ text: 'MODE: talk' }] }, () => {}, (r, model) => res({ praise: r.praise_ko, tx: r.transcript }), why => res({ why })); })")
     t.check("s22 다시 받아도 깨졌으면 그 문장은 비우고 나머지는 살림", r2.get("praise") == "" and bool(r2.get("tx")), r2)
     ev(pg, "(function(){ gReset(); window.__mock.plan = []; })()")
+    click(pg, "tab", "phr"); cats = pg.locator(".ec-cat").all_inner_texts()
+    t.check("s22 상황별 단추에 구문 수: 전체 = 나머지 합", cats[0] == "전체 %d" % ev(pg, "allPhrases().length") and sum(int(x.split()[-1]) for x in cats[1:]) == ev(pg, "allPhrases().length") and cats[-1].startswith("내 구문 "), cats)
     t.check("s22 모든 단추에 동작이 연결됨", handlers_ok(pg) == [], handlers_ok(pg))
     shot(pg, "p47_listen")
     t.check("s22 오류 없음", not real(errs), errs); ctx.close()

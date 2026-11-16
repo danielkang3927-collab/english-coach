@@ -741,7 +741,7 @@ function drawPhrases() {
   h += card("이어 듣기 · 따라 말하기", loopCard());
   h += card("선생님 모범답안 모음", natCard());
   const list = all.filter(p => U.phCat === "all" || p.c === U.phCat);
-  h += '<section class="ec-card"><div class="ec-cats">' + cats.map(c => '<button class="ec-cat" data-act="phCat" data-arg="' + c[0] + '" aria-pressed="' + (U.phCat === c[0]) + '">' + esc(c[1]) + '</button>').join("") + '</div>' +
+  h += '<section class="ec-card"><div class="ec-cats">' + cats.map(c => '<button class="ec-cat" data-act="phCat" data-arg="' + c[0] + '" aria-pressed="' + (U.phCat === c[0]) + '">' + esc(c[1]) + ' ' + (c[0] === "all" ? all.length : all.filter(p => p.c === c[0]).length) + '</button>').join("") + '</div>' +
     (list.length ? list.map(p => {
       const st = phraseState(p.id), s = DB.srs[p.id];
       return '<div class="ec-ph"><div><b>' + esc(p.en) + '</b> ' + say(p.en) + '</div><div class="ec-sub">' + esc(p.ko) + '</div><div class="ec-row"><em class="ec-badge ' + (st === "known" ? "good" : "") + '">' + (st === "known" ? "익힘" : (st === "learning" ? "연습 중 · 다음 복습 " + dueText(s) : "새 구문")) + '</em>' +
