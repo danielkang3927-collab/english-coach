@@ -136,6 +136,7 @@ function drawHome() {
   if (!G.key) h += card("시작하기", '<p>선생님(Gemini)이 녹음을 들으려면 이용 키가 한 번 필요합니다.</p>' + btn("설정 열기", "tab", "set"));
   if (fbReady() && SYNC.ask) h += card("계정 확인이 필요합니다", '<p>이 기기의 기록을 지금 로그인한 계정에 합칠지 정해 주세요.</p>' + btn("설정에서 정하기", "tab", "set"));
   else if (fbReady() && !AUTH.uid) h += card("기기를 바꿔도 기록이 이어지게", '<p class="ec-sub">구글로 로그인하면 휴대폰·아이패드·노트북에서 같은 기록을 씁니다. 기록은 합치기만 하고 지우지 않습니다.</p>' + btn("구글로 로그인", "login"));
+  if (G.key && AUTH.uid && KEY_SRC().g === "shared") h += card("내 무료 키를 넣으면 더 안정적입니다", '<p class="ec-sub">지금은 함께 쓰는 키로 채점하고 있어, 여러 사람이 쓰면 하루 무료 한도가 금방 찹니다. 구글 계정으로 내 키를 만들어 넣으면(무료, 2분) 내 한도를 혼자 씁니다.</p><p class="ec-sub">① 아래 주소에서 구글로 로그인 → 「API 키 만들기」 → 키 복사<br>② 이 앱 「설정」의 Gemini 이용 키 칸에 붙여 넣고 저장</p><p><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></p><div class="ec-row">' + btn("설정 열기", "tab", "set", "small") + '</div>');
   h += card("나의 학습 현황", weekHtml());
   /* 등급과 목표 */
   let lv = "";
@@ -360,7 +361,7 @@ function batchSend() {
       parts.push({ text: "ITEM " + (j + 1) + " | TASK " + it.task + " | TARGET: " + it.en + " | FOCUS: " + (it.focus ? it.focus + " (" + (TAG_EN[it.focus] || FOCUS_EN[it.focus] || "") + ")" : "none") });
       parts.push({ inlineData: { mimeType: "audio/wav", data: me.clips[from + j].b64 } });
     }
-    gCall({ sys: sysFor("batch"), parts, temp: 0.2 }, s => { if (A === me) setMsg(s + " (" + from + " / " + n + ")"); }, (r, model) => {
+    gCall({ sys: sysFor("batch"), parts, temp: 0.2, lite: true }, s => { if (A === me) setMsg(s + " (" + from + " / " + n + ")"); }, (r, model) => {
       if (A !== me || me.phase !== "sending") return;
       me.part = me.part.concat(cleanBatch(r, k)); me.md = model; pendSave(); step();
     }, (why, kind) => { if (A === me && me.phase === "sending") failed(me, why + (me.part.length ? " (" + me.part.length + "개까지는 채점해 두었습니다.)" : ""), kind); });
@@ -924,7 +925,7 @@ const ACT = {
   natAsk: a => { const x = KEEP[+a]; if (!x || U.natBusy) return; const en = x.en, y0 = window.scrollY;
     const show = m => { U.natBusy = null; if (U.tab === "phr") { U.natMsg = m; if (!REC.on) { const y = window.scrollY; render(); window.scrollTo(0, y); } } else if (!REC.on) setMsg(m.text, m.err); };
     U.natBusy = en; U.natMsg = null; render(); window.scrollTo(0, y0);
-    gCall({ sys: sysFor("ask"), temp: 0.2, parts: [{ text: "MODE: ask\nEXPRESSION: " + en }] }, () => {}, r => {
+    gCall({ sys: sysFor("ask"), temp: 0.2, lite: true, parts: [{ text: "MODE: ask\nEXPRESSION: " + en }] }, () => {}, r => {
       const ko = r && String(r.meaning_ko || "").trim();
       if (!ko) { show({ text: "뜻을 받지 못했습니다. 잠시 뒤에 다시 눌러 주세요.", err: true }); return; }
       const ok = addMyPhrase(en, ko); if (ok) syncSoon();
@@ -1040,7 +1041,7 @@ window.addEventListener("pagehide", daySave);
 const MIGRATED = dbLoad();
 gLoad(); authLoad(); /* ---------- 새 판이 올라오면 저절로 바꿔 탄다. 녹음·채점 중에는 기다렸다가 끝난 뒤에 한다. ---------- */
 const UPD = { want: 0, last: 0 };
-function updIdle() { return !REC.on && !(A && (A.phase === "sending" || hasWork(A))) && !(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)); }
+function updIdle() { return !REC.on && !ttsPlaying() && !(A && (A.phase === "sending" || hasWork(A))) && !(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)); }
 function updGo() {
   if (!UPD.want || UPD.want <= BUILD || !updIdle()) return false;
   let did = ""; try { did = sessionStorage.getItem("ec_upd") || ""; } catch (e) {}

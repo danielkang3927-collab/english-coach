@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 28;
+const BUILD = 30;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -547,17 +547,37 @@ function speak(text, role) {
 }
 /* ---------- 이어 듣기: 문장 목록을 차례로 읽고, 따라 말할 틈을 두고, 멈출 때까지 되풀이 ---------- */
 const LOOP = { on: false, list: [], i: 0, id: 0, rate: 1, echo: true, forever: true, onPaint: null };
+/* 소리가 나는 중인가 (이어 듣기, 받아 온 소리, 기기 목소리). 새 버전으로 바꾸는 일은 이때 하지 않는다. */
+function ttsPlaying() { try { return LOOP.on || !!(XI.audio && !XI.audio.paused && !XI.audio.ended && XI.audio.currentTime > 0) || !!(window.speechSynthesis && window.speechSynthesis.speaking); } catch (e) { return false; } }
+/* 소리 없는 구간을 오디오로 만들어 이어 붙인다. 타이머는 화면이 꺼지면 멈추지만 재생 중인 오디오는 이어진다. */
+function silentWav(ms) {
+  const sr = 8000, n = Math.max(1, Math.round(sr * ms / 1000)), buf = new ArrayBuffer(44 + n), dv = new DataView(buf), w = (o, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, "RIFF"); dv.setUint32(4, 36 + n, true); w(8, "WAVE"); w(12, "fmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, sr, true); dv.setUint32(28, sr, true); dv.setUint16(32, 1, true); dv.setUint16(34, 8, true); w(36, "data"); dv.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) dv.setUint8(44 + i, 128);
+  return buf;
+}
+function loopGap(ms) {
+  return new Promise(res => {
+    let done = false; const fin = () => { if (done) return; done = true; clearTimeout(t); try { if (XI.audio) XI.audio.removeEventListener("ended", fin); } catch (e) {} res(); };
+    const t = setTimeout(fin, ms + 1500);
+    if (!XI.key || !XI.audio) { clearTimeout(t); setTimeout(fin, ms); return; }
+    try { XI.audio.addEventListener("ended", fin); xiPlay(silentWav(ms), "audio/wav").then(ok => { if (!ok) { try { XI.audio.removeEventListener("ended", fin); } catch (e) {} setTimeout(fin, ms); } else { try { XI.audio.playbackRate = 1; } catch (e) {} } }); } catch (e) { setTimeout(fin, ms); }
+  });
+}
 function loopPaint() { if (LOOP.onPaint) try { LOOP.onPaint(); } catch (e) {} }
 function speakWait(text, role) {                     /* 한 문장을 읽고 끝나면 걸린 시간(ms)을 준다. 다른 소리가 끼어들면 -1 */
   return new Promise(res => {
     if (!speak(text, role)) { res(-1); return; }
-    const my = XI.seq, t0 = Date.now(); let started = 0;
+    const my = XI.seq, t0 = Date.now(); let started = 0, over = false;
+    const onEnd = () => { if (over || XI.seq !== my || !started) return; over = true; clearInterval(iv); try { XI.audio.removeEventListener("ended", onEnd); } catch (e) {} res(Date.now() - started); };
+    const hook = () => { try { if (XI.audio) XI.audio.addEventListener("ended", onEnd); } catch (e) {} }; hook();
     const iv = setInterval(() => {
-      if (XI.seq !== my) { clearInterval(iv); res(-1); return; }
+      if (over) return;
+      if (XI.seq !== my) { over = true; clearInterval(iv); try { if (XI.audio) XI.audio.removeEventListener("ended", onEnd); } catch (e) {} res(-1); return; }
       const a = XI.audio, ap = !!(a && !a.paused && !a.ended && a.currentTime > 0), sp = !!(window.speechSynthesis && window.speechSynthesis.speaking), now = Date.now();
       if (ap && a.playbackRate !== LOOP.rate && LOOP.on) { try { a.playbackRate = LOOP.rate; } catch (e) {} }
-      if (!started) { if (ap || sp) started = now; else if (now - t0 > 25000) { clearInterval(iv); res(0); } return; }
-      if (!ap && !sp && now - started > 250) { clearInterval(iv); res(now - started); }
+      if (!started) { if (ap || sp) { started = now; hook(); } else if (now - t0 > 25000) { over = true; clearInterval(iv); res(0); } return; }
+      if (!ap && !sp && now - started > 250) { over = true; clearInterval(iv); try { if (XI.audio) XI.audio.removeEventListener("ended", onEnd); } catch (e) {} res(now - started); }
     }, 120);
   });
 }
@@ -577,7 +597,7 @@ function loopStart(list, opt) {
       if (id !== LOOP.id || !LOOP.on) return;
       if (ms < 0) { loopStop(); return; }               /* 다른 「듣기」를 눌렀거나 녹음을 시작했으면 멈춘다 */
       const seq0 = XI.seq;
-      return wait(LOOP.echo ? Math.min(12000, Math.max(1200, ms * 1.15 + 500)) : 600).then(() => { if (id !== LOOP.id || !LOOP.on) return; if (XI.seq !== seq0) { loopStop(); return; } LOOP.i++; step(); });
+      return loopGap(LOOP.echo ? Math.min(12000, Math.max(1200, ms * 1.15 + 500)) : 600).then(() => { if (id !== LOOP.id || !LOOP.on) return; if (XI.seq !== seq0) { loopStop(); return; } LOOP.i++; step(); });
     });
   };
   step(); return true;
@@ -630,7 +650,12 @@ function gSlowLoad() { try { const q = JSON.parse(store.get("ec_gslow") || "{}")
 function gSlow(model) { if (!G.slow) gSlowLoad(); const n = (G.slow[model] = (+G.slow[model] || 0) + 1); store.set("ec_gslow", JSON.stringify(G.slow)); gBlock(model, Date.now() + Math.min(180, 10 * Math.pow(3, n - 1)) * 60000); }
 function gFine(model) { if (!G.slow) gSlowLoad(); if (G.slow[model]) { delete G.slow[model]; store.set("ec_gslow", JSON.stringify(G.slow)); } }
 function gFree(model) { const u = G.block[model]; return !G.dead[model] && !(u && u > Date.now()); }
-function gOrder() { const c = G.chain.filter(n => n !== G.model); if (G.model) c.unshift(G.model); return c; }
+/* 모델 순서. 무료 한도는 Flash가 하루 20번쯤, Flash-Lite가 하루 500번쯤이라, 짧은 문장 채점(lite)은 Lite부터 써서 좋은 모델의 한도를 대화·레벨 테스트에 남긴다. */
+function gOrder(lite) {
+  let c = G.chain.filter(n => n !== G.model);
+  if (lite && !G.model) c = c.filter(n => /lite/i.test(n)).concat(c.filter(n => !/lite/i.test(n)));
+  if (G.model) c.unshift(G.model); return c;
+}
 function gReset() { G.block = {}; G.dead = {}; G.slow = {}; store.del("ec_gquota"); store.del("ec_gslow"); if (G.onChain) G.onChain(); }
 function gStateOf(n) { const u = G.block[n]; return G.dead[n] ? "쓸 수 없음" : (u && u > Date.now() ? ((G.slow && G.slow[n]) ? "응답이 느려 쉬는 중 · " + hhmm(u) + "쯤 다시 시도" : (u - Date.now() > 10 * 60000 ? "오늘 한도 소진 · " + hhmm(u) + "쯤 다시 열림" : "잠시 대기 중")) : "사용 가능"); }
 function gList(done, fail) {
@@ -698,7 +723,7 @@ function gCall(req, status, done0, fail0) {
   const next0 = why => { if (why) status(why); if (!G.chain.length) { gList(() => run(), fail); return; } run(); };
   function run() {
     if (settled) return;
-    const order = gOrder().filter(gFree).filter(n => tried.indexOf(n) < 0);
+    const order = gOrder(req.lite).filter(gFree).filter(n => tried.indexOf(n) < 0);
     if (!order.length || tried.length >= 6 || netN >= 3) {      /* 연결 문제는 세 번까지만 해 보고 멈춘다 (녹음은 그대로 남는다) */
       if (liveN() > 0) return;
       if (G.onChain) G.onChain();
@@ -708,7 +733,7 @@ function gCall(req, status, done0, fail0) {
     clearTimeout(hedgeT);
     hedgeT = setTimeout(() => {
       if (settled || tried.length >= 6) return;
-      const more = gOrder().filter(gFree).filter(n => tried.indexOf(n) < 0);
+      const more = gOrder(req.lite).filter(gFree).filter(n => tried.indexOf(n) < 0);
       if (more.length) { status("「" + model + "」의 답이 늦어 「" + more[0] + "」에도 함께 보내는 중…"); run(); }
     }, hedgeMs);
     fetchTx(G_BASE + "models/" + encodeURIComponent(model) + ":generateContent", {
