@@ -698,7 +698,7 @@ function xiSetup(key, first) {
     XI.key = key; store.set("ec_xikey", key); U.f.xiKey = "";
     if (!XI.voices.some(v => v.id === XI.voice)) xiSetVoice(vs[0].id);
     return xiUsage(key).catch(() => null);
-  }).then(() => { keyTouch("x"); XI.off = 0; XI.note = ""; U.xiMsg = { text: first ? "연결했습니다. 목소리는 " + XI.name + " 입니다. 「목소리 들어 보기」로 확인해 보세요." : "새로 받았습니다." }; if (U.tab === "set") render(); },
+  }).then(() => { keyTouch("x"); XI.off = 0; GT.off = 0; store.del("ec_xioff"); store.del("ec_gtoff"); XI.note = ""; U.xiMsg = { text: first ? "연결했습니다. 목소리는 " + XI.name + " 입니다. 「목소리 들어 보기」로 확인해 보세요." : "새로 받았습니다." }; if (U.tab === "set") render(); },
     e => { U.xiMsg = { text: String(e && e.message || e), err: true }; if (U.tab === "set") render(); });
 }
 function drawSyncCard() {
@@ -883,7 +883,23 @@ window.addEventListener("pagehide", daySave);
 
 /* ---------- 시작 ---------- */
 const MIGRATED = dbLoad();
-gLoad(); authLoad(); xiLoad(); SYNC.onKeys = got => { if (got.indexOf("g") >= 0) { U.f.gkey = G.key; U.remember = true; } U.keyMsg = "계정에 저장해 둔 이용 키를 이 기기에 넣었습니다."; }; xiEnsurePool().then(ok => { if (ok && U.tab === "set") render(); }); document.addEventListener("pointerdown", () => { xiUnlock(); }, true);
+gLoad(); authLoad(); /* ---------- 새 판이 올라오면 저절로 바꿔 탄다. 녹음·채점 중에는 기다렸다가 끝난 뒤에 한다. ---------- */
+const UPD = { want: 0, last: 0 };
+function updIdle() { return !REC.on && !(A && (A.phase === "sending" || hasWork(A))) && !(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)); }
+function updGo() {
+  if (!UPD.want || UPD.want <= BUILD || !updIdle()) return false;
+  let did = ""; try { did = sessionStorage.getItem("ec_upd") || ""; } catch (e) {}
+  if (did === String(UPD.want)) return false;                    /* 같은 판으로는 한 번만 시도한다 (되풀이 방지) */
+  try { sessionStorage.setItem("ec_upd", String(UPD.want)); } catch (e) { return false; }
+  dbSave("day"); location.replace(location.pathname + "?v=" + UPD.want); return true;
+}
+function updCheck() {
+  if (Date.now() - UPD.last < 60000) { updGo(); return Promise.resolve(false); }
+  UPD.last = Date.now();
+  return fetch("version.json?t=" + Date.now(), { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(j => { const n = j && +j.build; if (n > BUILD) { UPD.want = n; return updGo(); } return false; }, () => false);
+}
+xiLoad(); setTimeout(updCheck, 3000); setInterval(updCheck, 5 * 60000); document.addEventListener("visibilitychange", () => { if (!document.hidden) updCheck(); });
+SYNC.onKeys = got => { if (got.indexOf("g") >= 0) { U.f.gkey = G.key; U.remember = true; } U.keyMsg = "계정에 저장해 둔 이용 키를 이 기기에 넣었습니다."; }; xiEnsurePool().then(ok => { if (ok && U.tab === "set") render(); }); document.addEventListener("pointerdown", () => { xiUnlock(); }, true);
 U.f.gkey = G.key; U.remember = G.key ? !!store.get("ec_gkey") : true; U.scene = today() % 6;
 G.onChain = () => { if (U.tab === "set") render(); };
 SYNC.onPaint = () => { if (REC.on) return; const ae = document.activeElement, typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName); if (!typing && (U.tab === "set" || U.tab === "home" || U.tab === "rec")) render(); };

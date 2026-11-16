@@ -305,6 +305,33 @@ def s15(b):
     t.check("s15 처리기·오류 없음", handlers_ok(po) == [] and handlers_ok(pf) == [] and not real(eo) and not real(ef) and not real(et), [real(eo), real(ef), real(et)])
     O.close(); F.close(); T3.close()
 
+def s16(b):
+    print("\n== s16 새 판 자동 적용, 듣기, 늦은 모델 ==")
+    import json as _j
+    t.check("s16 version.json 의 판 번호가 앱과 같음", _j.load(open(os.path.join(ROOT, "version.json")))["build"] == int(re.search(r"const BUILD = (\d+);", open(os.path.join(ROOT, "js/core.js"), encoding="utf-8").read()).group(1)))
+    ctx, pg, errs = page(b); set_key(pg)
+    cur = ev(pg, "BUILD")
+    t.check("s16 같은 판이면 그대로", ev(pg, "(function(){ UPD.last = 0; return updCheck(); })()") is False and "v=" + str(cur + 5) not in pg.url)
+    pg.route("**/version.json*", lambda r: r.fulfill(status=200, content_type="application/json", body='{"build": %d}' % (cur + 5)))
+    ev(pg, "(function(){ window.__ec.A = {type:'test', title:'x', phase:'sending', tasks:[], i:0}; UPD.last = 0; })()"); ev(pg, "updCheck()"); pg.wait_for_timeout(500)
+    t.check("s16 채점 중에는 바꿔 타지 않음", "v=%d" % (cur + 5) not in pg.url and ev(pg, "UPD.want") == cur + 5)
+    ev(pg, "(function(){ window.__ec.A = null; })()")
+    with pg.expect_navigation(): ev(pg, "(function(){ setTimeout(updCheck, 0); })()")
+    pg.wait_for_function("window.__ec")
+    t.check("s16 끝나면 새 판 주소로 저절로 다시 엶 (키·기록 그대로)", ("v=%d" % (cur + 5)) in pg.url and ev(pg, "G.key") != "")
+    ev(pg, "(function(){ UPD.last = 0; })()"); ev(pg, "updCheck()"); pg.wait_for_timeout(600)
+    t.check("s16 같은 판으로 되풀이해 다시 열지 않음", ev(pg, "typeof BUILD") == "number" and ev(pg, "sessionStorage.getItem('ec_upd')") == str(cur + 5))
+    pg.unroute("**/version.json*")
+    # 늦은 모델: 기다리지 않고 다음 모델에도 함께 보냄
+    r = ev(pg, "new Promise(res => { gReset(); G.hedgeMs = 300; window.__mock.plan = ['slow-2500', 'ok']; const st = [], t0 = Date.now(); const n0 = window.__calls.length; gCall({sys:'x', parts:[{text:'MODE: talk'}]}, s => st.push(s), (r, m) => res({ok:true, m, ms: Date.now() - t0, st, models: window.__calls.slice(n0).filter(c => c.kind==='gen').map(c => c.model)}), (why, kind) => res({ok:false, why, st})); })")
+    t.check("s16 답이 늦으면 다음 모델에도 함께 보내 먼저 온 답을 씀", r["ok"] and len(r["models"]) == 2 and r["m"] == r["models"][1] and r["ms"] < 2000 and any("함께 보내는 중" in x for x in r["st"]), r)
+    t.check("s16 늦었던 모델은 한동안 건너뜀", ev(pg, "gStateOf('%s')" % r["models"][0]).startswith("응답이 느려 쉬는 중") and ev(pg, "gFree('%s')" % r["models"][1]))
+    pg.wait_for_timeout(2600)
+    r2 = ev(pg, "new Promise(res => { gReset(); G.hedgeMs = 300; window.__mock.plan = ['slow-1200']; const n0 = window.__calls.length; let n = 0; gCall({sys:'x', parts:[{text:'MODE: talk'}]}, s => {}, (r, m) => { n++; setTimeout(() => res({n, m, calls: window.__calls.slice(n0).filter(c => c.kind==='gen').length}), 1800); }, (why) => res({fail: why})); })")
+    t.check("s16 함께 보내도 결과는 한 번만 처리", r2.get("n") == 1 and r2.get("calls") == 2, r2)
+    ev(pg, "(function(){ G.hedgeMs = 0; gReset(); })()")
+    t.check("s16 오류 없음", not [e for e in errs if "Failed to load" not in e], errs); ctx.close()
+
 def s14(b):
     print("\n== s14 채점 중 안내 ==")
     ctx, pg, errs = page(b); set_key(pg)
