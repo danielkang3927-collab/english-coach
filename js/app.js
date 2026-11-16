@@ -231,18 +231,6 @@ function badgeHtml() { const B = badgeList(), got = B.filter(b => b.ok).length;
   return '<p class="ec-sub">' + B.length + '개 가운데 ' + got + '개를 받았습니다. 기록에서 바로 계산하므로 기기를 바꿔도 그대로입니다.</p><div class="ec-bgs">' + B.map(b => '<div class="ec-bg' + (b.ok ? " on" : "") + '"><b>' + (b.ok ? "★ " : "") + esc(b.n) + '</b><small>' + esc(b.d) + (b.ok ? "" : " · " + b.now + " / " + b.goal) + '</small></div>').join("") + '</div>'; }
 function attendHtml() { const A0 = attendance(12), done = A0.filter(x => x.v === 2).length, act = A0.filter(x => x.v >= 1).length;
   return '<div class="ec-att">' + ["월", "화", "수", "목", "금", "토", "일"].map(n => '<span>' + n + '</span>').join("") + A0.map(x => '<i class="' + (x.v === 2 ? "full" : x.v === 1 ? "part" : x.v < 0 ? "later" : "") + (x.today ? " now" : "") + '"></i>').join("") + '</div><p class="ec-sub">진한 칸은 루틴을 모두 마친 날(' + done + '일), 연한 칸은 일부만 한 날입니다. 12주 동안 연습한 날 ' + act + '일.</p>'; }
-function askHtml() {
-  const a = U.ask; if (!a) return "";
-  if (a.busy) return '<div class="ec-msg">선생님에게 물어보는 중입니다…</div>';
-  if (a.err) return '<div class="ec-msg err">' + esc(a.err) + '</div>';
-  const r = a.r, ex = (Array.isArray(r.examples) ? r.examples : []).filter(e => e && e.en).slice(0, 3);
-  let h = '<div class="ec-hr"></div><p><b>' + esc(r.en) + '</b> ' + say(r.en, "듣기", "teacher") + '</p><p>' + esc(r.meaning_ko || "") + '</p>';
-  if (r.when_ko) h += '<p class="ec-sub">이럴 때: ' + esc(r.when_ko) + '</p>';
-  if (r.note_ko) h += '<p class="ec-sub">조심: ' + esc(r.note_ko) + '</p>';
-  h += '<div class="ec-row">' + btn(a.added && a.added.m ? "담았습니다" : "이 표현 내 구문에 담기", "askAdd", "m", a.added && a.added.m ? "ghost small" : "small") + '</div>';
-  ex.forEach((e, i) => { h += '<p>' + esc(e.en) + ' ' + say(e.en, "듣기") + '<br><span class="ec-sub">' + esc(e.ko || "") + '</span></p><div class="ec-row">' + btn(a.added && a.added[i] ? "담았습니다" : "이 예문 담기", "askAdd", String(i), "ghost small") + '</div>'; });
-  return h + msgBox(a.msg);
-}
 /* ---------- 훈련 목록 ---------- */
 function drawTrain() {
   const p = PLAN(), r = dayRec(), due = dueList().length, f = focusTags(), sc = D.SCENES[U.scene];
@@ -700,11 +688,6 @@ function drawPhrases() {
     '<div class="ec-row">' + btn(fx.length ? "틀렸던 문장 훈련 (" + fx.length + "개 중 " + Math.min(8, fx.length) + "개)" : "아직 고친 문장이 없습니다", "fixGo", null, fx.length ? "" : "ghost") + btn("지난 기록에서 모으기", "fixScan", null, "ghost small") + '</div>' + msgBox(U.fixMsg));
   h += card("이어 듣기 · 따라 말하기", loopCard());
   h += card("선생님 모범답안 모음", natCard());
-  h += card("마주친 표현 물어보기", '<p class="ec-sub">오늘 듣거나 읽은 영어 표현을 넣으면 뜻, 내가 쓸 수 있는 상황, 예문을 알려 줍니다. 마음에 들면 내 구문에 담아 입으로 익히세요.</p>' +
-    '<label for="ecAskEn">영어 표현</label><input type="text" id="ecAskEn" data-bind="askEn" value="' + esc(U.f.askEn) + '" placeholder="예: I\'m swamped.">' +
-    '<div class="ec-row">' + btn(U.ask && U.ask.busy ? "물어보는 중…" : "물어보기", "askGo", null, U.ask && U.ask.busy ? "ghost" : "") + (U.ask && !U.ask.busy ? btn("지우기", "askClear", null, "ghost small") : "") + '</div>' + askHtml());
-  h += card("내 구문 담기", '<label for="ecPhEn">영어</label><input type="text" id="ecPhEn" data-bind="phEn" value="' + esc(U.f.phEn) + '" placeholder="예: Let me pray for you."><label for="ecPhKo">우리말 뜻</label><input type="text" id="ecPhKo" data-bind="phKo" value="' + esc(U.f.phKo) + '" placeholder="예: 제가 기도해 드릴게요.">' +
-    '<div class="ec-row">' + btn("담기", "phAdd") + '</div>' + msgBox(U.phMsg));
   const list = all.filter(p => U.phCat === "all" || p.c === U.phCat);
   h += '<section class="ec-card"><div class="ec-cats">' + cats.map(c => '<button class="ec-cat" data-act="phCat" data-arg="' + c[0] + '" aria-pressed="' + (U.phCat === c[0]) + '">' + esc(c[1]) + '</button>').join("") + '</div>' +
     (list.length ? list.map(p => {
@@ -956,25 +939,6 @@ const ACT = {
     if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
     A = null; U.tagSel = null; U.ordSel = null; U.shortMsg = null; startBatch("phr", it, "지난 문장 복습", null); if (A) A.again = true; },
   todayGo: () => { const i = D.SCENES.findIndex(x => x.id === "today"); if (i < 0) return; U.scene = i; ACT.start("talk"); },
-  askGo: () => {
-    if (U.ask && U.ask.busy) return;
-    const q = String(U.f.askEn || "").trim().replace(/\s+/g, " ").slice(0, 200);
-    if (!q) { U.ask = { err: "영어 표현을 넣어 주세요." }; render(); return; }
-    const me = U.ask = { q: q, busy: true }, show = () => { if (U.tab === "phr" && !REC.on) render(); };
-    render();
-    gCall({ sys: sysFor("ask"), temp: 0.2, parts: [{ text: "MODE: ask\nEXPRESSION: " + q }] }, () => {}, r => {
-      if (U.ask !== me) return; me.busy = false;
-      if (!r || !String(r.en || "").trim()) me.err = (r && r.meaning_ko) || "영어 표현으로 알아듣지 못했습니다. 철자를 확인해 주세요."; else me.r = r;
-      show();
-    }, why => { if (U.ask !== me) return; me.busy = false; me.err = why || "답을 받지 못했습니다. 잠시 뒤에 다시 물어봐 주세요."; show(); });
-  },
-  askClear: () => { U.ask = null; U.f.askEn = ""; render(); },
-  askAdd: a => { const me = U.ask; if (!me || !me.r) return; const ex = (Array.isArray(me.r.examples) ? me.r.examples : []).filter(e => e && e.en);
-    const it = a === "m" ? { en: me.r.en, ko: me.r.meaning_ko } : ex[+a]; if (!it) return;
-    const r = addMyPhrase(it.en, it.ko); me.added = me.added || {};
-    if (r === false) { me.added[a] = true; me.msg = { text: "이미 내 구문에 있습니다." }; }
-    else if (r) { me.added[a] = true; me.msg = { text: "담았습니다. 다음 구문 복습에 먼저 나옵니다." }; syncSoon(); }
-    render(); },
   cumGo: () => { if (REC.on) return; const it = pickCumul(20); if (!it.length) return;
     if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
     A = null; U.tagSel = null; U.ordSel = null; startBatch("phr", it, "누적 암송", null); if (A) A.again = true; },
@@ -982,13 +946,6 @@ const ACT = {
     if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
     A = null; U.tagSel = null; U.ordSel = null; U.fixMsg = null; startBatch("phr", pickFix(8), "틀렸던 문장 다시 말하기", null); },
   fixScan: () => { const n = fixCollect(); U.fixMsg = { text: n ? "지난 기록에서 고친 문장 " + n + "개를 내 구문에 담았습니다." : "새로 담을 문장이 없습니다. 이미 모두 담겨 있습니다." }; if (n) syncSoon(); render(); },
-  phAdd: () => {
-    const r = addMyPhrase(U.f.phEn, U.f.phKo);
-    if (r === null) U.phMsg = { text: "영어 구문을 넣어 주세요.", err: true };
-    else if (r === false) U.phMsg = { text: "이미 있는 구문입니다.", err: true };
-    else { U.phMsg = { text: "담았습니다. 다음 구문 복습에 먼저 나옵니다." }; U.f.phEn = ""; U.f.phKo = ""; U.phCat = "my"; syncSoon(); }
-    render();
-  },
   phDel: a => { if (U.delAsk !== a) { U.delAsk = a; render(); return; } DB.my = DB.my.filter(p => p.id !== a); DB.gone[a] = now(); dbSave("my"); dbSave("gone"); syncSoon(); U.delAsk = null; render(); },
   /* 기록 */
   logOpen: a => { U.logOpen = U.logOpen === a ? null : a; render(); },
