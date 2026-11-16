@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 17;
+const BUILD = 18;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -492,10 +492,14 @@ function gRank(names) {                            /* 정식 Flash(새 것 먼�
 }
 function gNextReset() { const d = new Date(); let r = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 8, 0, 0); if (r <= d.getTime()) r += 86400000; return r; }
 function gBlock(model, until) { G.block[model] = until; store.set("ec_gquota", JSON.stringify(G.block)); }
+/* 답이 없거나 서버 오류를 낸 모델은 점점 길게 쉬게 한다 (10분 → 30분 → 1시간 30분 → 3시간). 한 번 잘 되면 처음으로 돌아간다. */
+function gSlowLoad() { try { const q = JSON.parse(store.get("ec_gslow") || "{}"); G.slow = (q && typeof q === "object") ? q : {}; } catch (e) { G.slow = {}; } }
+function gSlow(model) { if (!G.slow) gSlowLoad(); const n = (G.slow[model] = (+G.slow[model] || 0) + 1); store.set("ec_gslow", JSON.stringify(G.slow)); gBlock(model, Date.now() + Math.min(180, 10 * Math.pow(3, n - 1)) * 60000); }
+function gFine(model) { if (!G.slow) gSlowLoad(); if (G.slow[model]) { delete G.slow[model]; store.set("ec_gslow", JSON.stringify(G.slow)); } }
 function gFree(model) { const u = G.block[model]; return !G.dead[model] && !(u && u > Date.now()); }
 function gOrder() { const c = G.chain.filter(n => n !== G.model); if (G.model) c.unshift(G.model); return c; }
-function gReset() { G.block = {}; G.dead = {}; store.del("ec_gquota"); if (G.onChain) G.onChain(); }
-function gStateOf(n) { const u = G.block[n]; return G.dead[n] ? "쓸 수 없음" : (u && u > Date.now() ? (u - Date.now() > 10 * 60000 ? "오늘 한도 소진 · " + hhmm(u) + "쯤 다시 열림" : "잠시 대기 중") : "사용 가능"); }
+function gReset() { G.block = {}; G.dead = {}; G.slow = {}; store.del("ec_gquota"); store.del("ec_gslow"); if (G.onChain) G.onChain(); }
+function gStateOf(n) { const u = G.block[n]; return G.dead[n] ? "쓸 수 없음" : (u && u > Date.now() ? ((G.slow && G.slow[n]) ? "응답이 느려 쉬는 중 · " + hhmm(u) + "쯤 다시 시도" : (u - Date.now() > 10 * 60000 ? "오늘 한도 소진 · " + hhmm(u) + "쯤 다시 열림" : "잠시 대기 중")) : "사용 가능"); }
 function gList(done, fail) {
   fetch(G_BASE + "models?pageSize=200", { headers: { "x-goog-api-key": G.key } }).then(res => res.text().then(tx => {
     if (!res.ok) { fail(gErr(res.status, tx)); return; }
@@ -532,6 +536,7 @@ function fetchT(url, opt, ms) {
   return fetch(url, opt).then(r => { if (timer) clearTimeout(timer); return r; }, e => { if (timer) clearTimeout(timer); throw e; });
 }
 /* req: {sys, parts, temp}. status(글): 진행 안내. done(답 객체, 모델 이름). fail(이유, 종류: net 연결 · quota 한도 · 그 밖). */
+const G_WAIT = 50000;                                /* 한 모델을 기다리는 가장 긴 시간 */
 function gCall(req, status, done, fail) {
   if (!G.key) { fail("Gemini 이용 키가 없습니다. 「설정」에서 키를 넣어 주세요."); return; }
   const body = JSON.stringify({
@@ -550,14 +555,14 @@ function gCall(req, status, done, fail) {
     const model = order[0]; tried.push(model);
     fetchT(G_BASE + "models/" + encodeURIComponent(model) + ":generateContent", {
       method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": G.key }, body
-    }, 75000).then(res => res.text().then(tx => {
+    }, G_WAIT).then(res => res.text().then(tx => {
       if (res.status === 404) { G.dead[model] = 1; status("「" + model + "」을 쓸 수 없어 다른 모델을 찾는 중…"); gList(() => run(), fail); return; }
       if (res.status === 429) {
         const day = /per\s*day|PerDay/i.test(tx), m = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(tx);
         gBlock(model, day ? gNextReset() : Date.now() + Math.max(20, m ? parseFloat(m[1]) : 60) * 1000);
         next("「" + model + "」 한도가 차서 다음 모델로 보내는 중…"); return;
       }
-      if (res.status >= 500) { gBlock(model, Date.now() + 60000); next("「" + model + "」이 잠시 응답하지 않아 다음 모델로 보내는 중…"); return; }
+      if (res.status >= 500) { gSlow(model); next("「" + model + "」이 응답하지 않아 다음 모델로 보내는 중… (이 모델은 한동안 건너뜁니다)"); return; }
       if (res.status === 400 && /not support|unsupported|modalit/i.test(tx) && !/API key/i.test(tx)) { G.dead[model] = 1; next("「" + model + "」은 녹음을 듣지 못해 다음 모델로 보내는 중…"); return; }
       if (!res.ok) { fail(gErr(res.status, tx)); return; }
       let j = null; try { j = JSON.parse(tx); } catch (e) {}
@@ -566,13 +571,13 @@ function gCall(req, status, done, fail) {
       if (!text) { fail("선생님이 답을 주지 않았습니다." + (j && j.promptFeedback && j.promptFeedback.blockReason ? " (차단 사유: " + j.promptFeedback.blockReason + ")" : "") + " 「다시 보내기」를 눌러 주세요."); return; }
       const r = parseJson(text);
       if (!r || typeof r !== "object") { fail("선생님의 답을 읽지 못했습니다. 「다시 보내기」를 눌러 주세요."); return; }
-      if (G.onChain) G.onChain();
+      gFine(model); if (G.onChain) G.onChain();
       done(r, model);
     })).catch(e => {
       lastNet = String((e && e.name === "AbortError") ? "응답 시간 초과" : ((e && e.message) || e)).slice(0, 60);
       const slow = !!(e && e.name === "AbortError"); netN++;
       if (netN >= 3) { run(); return; }
-      if (slow) { next("「" + model + "」이 75초 넘게 답이 없어 다음 모델로 보내는 중…"); return; }   /* 느린 모델은 다시 기다리지 않는다 */
+      if (slow) { gSlow(model); next("「" + model + "」이 " + Math.round(G_WAIT / 1000) + "초 넘게 답이 없어 다음 모델로 보내는 중… (이 모델은 한동안 건너뜁니다)"); return; }   /* 느린 모델은 다시 기다리지 않는다 */
       if (!netTry[model]) { netTry[model] = 1; tried.pop(); status("연결이 끊겨 다시 보내는 중… (" + netN + "번째)"); setTimeout(run, 1500); return; }
       next("「" + model + "」에 연결되지 않아 다음 모델로 보내는 중…");
     });
