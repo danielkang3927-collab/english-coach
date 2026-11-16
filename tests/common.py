@@ -278,7 +278,8 @@ class FakeGoogle:
             rows.sort(key=lambda r: (r[1]["fields"][field]["timestampValue"], r[0])); rows = rows[: sq.get("limit", 10 ** 9)]
             rt = self.now(); pre = "projects/%s/databases/(default)/documents/" % FBCFG["projectId"]
             self.send(route, 200, [{"document": {"name": pre + k, "fields": v["fields"], "createTime": v["createTime"], "updateTime": v["updateTime"]}, "readTime": rt} for k, v in rows] or [{"readTime": rt}]); return
-        if not mine(rest): self.err(route, 403, "PERMISSION_DENIED", "Missing or insufficient permissions."); return
+        shared_ok = rest.startswith("shared/") and (request.method == "GET" or uid == getattr(self, "share_owner", "U1001"))   # 함께 쓰는 키: 읽기는 로그인한 누구나, 쓰기는 주인만
+        if not mine(rest) and not shared_ok: self.err(route, 403, "PERMISSION_DENIED", "Missing or insufficient permissions."); return
         if request.method == "GET":
             self.count["get"] += 1; d = self.docs.get(rest)
             if not d: self.err(route, 404, "NOT_FOUND", "Document not found."); return

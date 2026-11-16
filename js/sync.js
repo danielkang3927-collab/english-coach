@@ -212,9 +212,10 @@ function syncState(tryN) {
 }
 /* ---------- 이용 키도 계정에 함께 둔다 (본인만 읽을 수 있는 users/{uid}/state/keys). 나중에 바꾼 쪽이 이긴다. ---------- */
 const KEYS_T = () => { try { return JSON.parse(store.get("ec_keyt") || "{}") || {}; } catch (e) { return {}; } };
-function keyTouch(k) { const t = KEYS_T(); t[k] = Date.now(); store.set("ec_keyt", JSON.stringify(t)); if (typeof syncSoon === "function") syncSoon(1500); }
+const KEY_SRC = () => { try { return JSON.parse(store.get("ec_keysrc") || "{}") || {}; } catch (e) { return {}; } };   /* 함께 쓰는 키로 채운 것은 "shared" */
+function keyTouch(k) { const sr = KEY_SRC(); if (sr[k]) { delete sr[k]; store.set("ec_keysrc", JSON.stringify(sr)); } const t = KEYS_T(); t[k] = Date.now(); store.set("ec_keyt", JSON.stringify(t)); if (typeof syncSoon === "function") syncSoon(1500); }
 function keysLocal() {
-  const t = KEYS_T(), g = store.get("ec_gkey") || "", x = store.get("ec_xikey") || "";
+  const t = KEYS_T(), sr = KEY_SRC(), g = sr.g ? "" : (store.get("ec_gkey") || ""), x = sr.x ? "" : (store.get("ec_xikey") || "");   /* 받아 온 함께 쓰는 키는 내 키로 치지 않는다 */
   return { g: { v: g, t: +t.g || (g ? 1 : 0) }, x: { v: x, t: +t.x || (x ? 1 : 0), voice: store.get("ec_xivoice") || "", name: store.get("ec_xiname") || "" } };
 }
 function syncKeys() {
@@ -240,12 +241,37 @@ function syncKeys() {
     return fsPatch(path, { j: { stringValue: JSON.stringify(out) } }, doc.exists ? doc : null).then(() => true);
   }).catch(() => false);                              /* 키 맞추기가 안 돼도 기록 맞추기는 성공으로 둔다. 다음에 다시 한다. */
 }
+/* ---------- 함께 쓰는 키 (shared/keys): 주인이 올리고, 로그인한 사람은 자기 키가 없을 때 받아 쓴다. 쓰기는 규칙이 주인에게만 허락한다. ---------- */
+function keyApply(k, v, extra) {
+  if (k === "g") { if (v) store.set("ec_gkey", v); else store.del("ec_gkey"); G.key = v; if (v) gList(() => { paint(); }, () => {}); }
+  else if (v) { store.set("ec_xikey", v); XI.key = v; if (extra && extra.voice) { XI.voice = String(extra.voice); XI.name = String(extra.name || ""); store.set("ec_xivoice", XI.voice); store.set("ec_xiname", XI.name); } XI.off = 0; xiVoices().then(() => { if (!XI.voice && XI.voices[0]) xiSetVoice(XI.voices[0].id); paint(); }, () => {}); }
+  else xiClear();
+}
+function syncShared() {
+  const uid = AUTH.uid, path = "shared/keys";
+  return fsGet(path).then(doc => {
+    if (AUTH.uid !== uid) return false;
+    const R = doc.exists ? (jparse(doc.fields.j && doc.fields.j.stringValue) || {}) : {}, sr = KEY_SRC(), got = [];
+    const cur = { g: store.get("ec_gkey") || "", x: store.get("ec_xikey") || "" }, rv = k => String((R[k] && R[k].v) || "");
+    const owner = R.o ? R.o === uid : !store.get("ec_sharedeny_" + uid);
+    if (R.o && R.o !== uid) ["g", "x"].forEach(k => {          /* 받는 쪽: 내 키가 없거나, 전에 받아 둔 키면 주인 것에 맞춘다 */
+      if ((!cur[k] || sr[k]) && rv(k) !== cur[k]) { keyApply(k, rv(k), R[k]); if (rv(k)) sr[k] = "shared"; else delete sr[k]; got.push(k); }
+      else if (!cur[k] && sr[k]) delete sr[k];
+    });
+    if (got.length) { store.set("ec_keysrc", JSON.stringify(sr)); if (SYNC.onKeys) SYNC.onKeys(got); }
+    if (!owner) return got.length > 0;
+    const out = { o: uid, g: { v: sr.g ? "" : cur.g }, x: { v: sr.x ? "" : cur.x, voice: store.get("ec_xivoice") || "", name: store.get("ec_xiname") || "" } };
+    if (!out.g.v && !out.x.v && !R.o) return false;            /* 올릴 키가 없으면 주인 자리를 만들지 않는다 */
+    if (canon(out) === canon(R)) return false;
+    return fsPatch(path, { j: { stringValue: JSON.stringify(out) } }, doc.exists ? doc : null).then(() => true, e => { if (/403|PERMISSION|권한/i.test(String(e && (e.status || e.message) || e))) store.set("ec_sharedeny_" + uid, "1"); return false; });
+  }).catch(() => false);
+}
 function syncNow() {
   if (!fbReady() || !AUTH.uid || SYNC.ask) return Promise.resolve(false);
   if (SYNC.busy) { SYNC.again = true; return Promise.resolve(false); }
   clearTimeout(SYNC.timer); SYNC.busy = true; SYNC.err = ""; paint();
   const uid = AUTH.uid;
-  return pullLog().then(pushLog).then(() => syncState(0)).then(() => syncKeys()).then(() => { SYNC.last = Date.now(); SYNC.err = ""; }, e => { if (AUTH.uid === uid) SYNC.err = String(e && e.message || e).slice(0, 220); })
+  return pullLog().then(pushLog).then(() => syncState(0)).then(() => syncKeys()).then(() => syncShared()).then(() => { SYNC.last = Date.now(); SYNC.err = ""; }, e => { if (AUTH.uid === uid) SYNC.err = String(e && e.message || e).slice(0, 220); })
     .then(() => { SYNC.busy = false; syncSave(); paint(); if (SYNC.again) { SYNC.again = false; return syncNow(); } return !SYNC.err; });
 }
 function syncFull() { SYNC.st = ""; SYNC.un = DB.log.map(r => r.id); syncSave(); return syncNow(); }   /* 처음부터 다시 맞춘다 (모두 받고 모두 올림) */

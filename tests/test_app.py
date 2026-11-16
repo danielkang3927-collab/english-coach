@@ -274,6 +274,37 @@ def s2(b):
     ev(pg, "window.__ec.A = null")
     t.check("s2 끝까지 오류 없음", not errs, errs); ctx.close()
 
+def s15(b):
+    print("\n== s15 함께 쓰는 키: 다른 사람이 로그인해도 채워짐 ==")
+    fake = FakeGoogle(); SK = "shared/keys"
+    done = "window.__ec && window.__ec.AUTH.uid && !window.__ec.SYNC.busy && window.__ec.SYNC.last > 0"
+    def sh(): d = fake.docs.get(SK); return json.loads(d["fields"]["j"]["stringValue"]) if d else None
+    def sync(pg): ev(pg, "(function(){ window.__ec.SYNC.last = 0; syncNow(); })()"); wait_js(pg, done)
+    O, po, eo = page(b, init=FB_INIT, fake=fake); set_key(po, "AIzaOWNERKEY111")
+    click(po, "tab", "set"); po.fill("#ecXiKey", "sk_test_elevenlabs_key_0001"); click(po, "xiSave"); wait_js(po, "XI.key && XI.voice")
+    click(po, "login"); wait_js(po, done)
+    t.check("s15 주인이 로그인하면 함께 쓰는 키 자리에 올라감", sh() and sh()["o"] == "U1001" and sh()["g"]["v"] == "AIzaOWNERKEY111" and sh()["x"]["v"] == "sk_test_elevenlabs_key_0001" and sh()["x"]["voice"] == "vM1", sh())
+    fake.account = {"sub": "2002", "email": "friend@example.com", "name": "다른 사람"}
+    F, pf, ef = page(b, init=FB_INIT, fake=fake); click(pf, "tab", "set"); click(pf, "login"); wait_js(pf, done); wait_js(pf, "XI.pool.length === 3")
+    click(pf, "tab", "home"); click(pf, "tab", "set")
+    t.check("s15 다른 사람이 로그인하면 두 키가 자동으로 채워짐", ev(pf, "AUTH.uid") == "U2002" and ev(pf, "G.key") == "AIzaOWNERKEY111" and ev(pf, "XI.key") == "sk_test_elevenlabs_key_0001" and ev(pf, "XI.voice") == "vM1" and "시작하기" not in text(pf) and pf.locator("#ecXiKey").count() == 0)
+    fk = fake.docs.get("users/U2002/state/keys")
+    t.check("s15 받은 키는 그 사람의 계정 자리에 다시 올리지 않고, 함께 쓰는 자리도 그대로", (fk is None or "AIzaOWNER" not in json.dumps(fk)) and sh()["o"] == "U1001" and ev(pf, "localStorage.getItem('ec_keysrc')") == '{"g":"shared","x":"shared"}', fk)
+    pf.reload(); pf.wait_for_function("window.__ec")
+    t.check("s15 다시 열어도 그대로", ev(pf, "G.key") == "AIzaOWNERKEY111" and ev(pf, "xiOn()"))
+    fake.account = {"sub": "1001", "email": "pastor@example.com", "name": "강동윤"}
+    po.wait_for_timeout(30); click(po, "tab", "set"); po.fill("#ecGKey", "AIzaOWNERKEY222"); click(po, "gSave"); po.wait_for_function("document.querySelector('#ecMain').innerText.indexOf('키가 확인됐습니다') >= 0"); sync(po); sync(pf)
+    t.check("s15 주인이 키를 바꾸면 다른 사람도 새 키로", sh()["g"]["v"] == "AIzaOWNERKEY222" and ev(pf, "G.key") == "AIzaOWNERKEY222")
+    click(pf, "tab", "set"); pf.fill("#ecGKey", "AIzaFRIENDOWN999"); click(pf, "gSave"); pf.wait_for_function("document.querySelector('#ecMain').innerText.indexOf('키가 확인됐습니다') >= 0"); sync(pf); sync(po)
+    t.check("s15 자기 키를 넣은 사람은 자기 키를 쓰고, 주인 키는 바뀌지 않음", ev(pf, "G.key") == "AIzaFRIENDOWN999" and sh()["g"]["v"] == "AIzaOWNERKEY222" and ev(po, "G.key") == "AIzaOWNERKEY222" and ev(pf, "XI.key") == "sk_test_elevenlabs_key_0001")
+    po.wait_for_timeout(30); click(po, "tab", "set"); click(po, "xiDel"); sync(po); sync(pf)
+    t.check("s15 주인이 지운 키는 받아 쓰던 사람에게서도 빠짐 (자기 키는 그대로)", sh()["x"]["v"] == "" and ev(pf, "XI.key") == "" and ev(pf, "G.key") == "AIzaFRIENDOWN999")
+    fake.account = {"sub": "3003", "email": "third@example.com", "name": "셋째"}
+    T3, pt, et = page(b, init=FB_INIT, fake=fake); set_key(pt, "AIzaTHIRDOWN333"); click(pt, "tab", "set"); click(pt, "login"); wait_js(pt, done)
+    t.check("s15 자기 키를 가진 다른 사람이 로그인해도 함께 쓰는 키를 덮어쓰지 못함", sh()["o"] == "U1001" and sh()["g"]["v"] == "AIzaOWNERKEY222" and ev(pt, "G.key") == "AIzaTHIRDOWN333")
+    t.check("s15 처리기·오류 없음", handlers_ok(po) == [] and handlers_ok(pf) == [] and not real(eo) and not real(ef) and not real(et), [real(eo), real(ef), real(et)])
+    O.close(); F.close(); T3.close()
+
 def s14(b):
     print("\n== s14 채점 중 안내 ==")
     ctx, pg, errs = page(b); set_key(pg)
@@ -843,7 +874,7 @@ def s9(b):
     t.check("s9 올라간 기록의 모양(시각·내용·서버 시각)", one["fields"]["t"]["integerValue"] == str(rec0["t"]) and "timestampValue" in one["fields"]["st"] and rec0["id"] in logs)
     st = fake.state("U1001"); dk = str(ev(A, "today()"))
     t.check("s9 구문 상자·날짜별 기록도 올라감", len(st["srs"]) == 8 and st["day"][dk]["st"]["phr"] == 8 and st["day"][dk]["st"]["talk"] == 1, st["day"])
-    t.check("s9 Gemini 키는 본인 키 문서(state/keys)에만 있고 기록·상태 문서에는 없음", "AIzaTESTKEY" not in json.dumps({k: v for k, v in fake.docs.items() if not k.endswith("/state/keys")}))
+    t.check("s9 Gemini 키는 본인 키 문서(state/keys)에만 있고 기록·상태 문서에는 없음", "AIzaTESTKEY" not in json.dumps({k: v for k, v in fake.docs.items() if not k.endswith("/state/keys") and k != "shared/keys"}))
     bad = handlers_ok(A); t.check("s9 설정 화면 처리기", bad == [], bad)
     shot(A, "p30_login_done")
 
