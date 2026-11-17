@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 40;
+const BUILD = 41;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -60,13 +60,35 @@ function logAdd(rec) { rec.id = newId(); rec.t = now(); DB.log.push(rec); dbSave
 /* 고친 문장 → 내 구문. 틀리게 말한 문장을 보여 주고 바른 문장을 소리 내어 말하게 한다 (간격 반복은 구문과 같다). */
 const FIX_MARK = "틀렸던 말: ";
 function fixOk(a, b) { const w = String(b || "").trim().split(/\s+/).length; return !!a && !/[\u3131-\uD7A3]/.test(String(a)) && w >= 3 && w <= 16 && /[A-Za-z]/.test(b) && String(a).trim().toLowerCase() !== String(b).trim().toLowerCase(); }
-function fixAdd(rec) { let n = 0; ((rec && rec.fx) || []).forEach(f => { if (f && fixOk(f.a, f.b) && addMyPhrase(f.b, FIX_MARK + String(f.a).trim())) n++; }); return n; }
+/* 틀렸던 문장은 내 구문에 「틀렸던 말: X ¦ 뜻: Y」로 담는다. 뜻이 있으면 우리말 뜻을 보고 말하는 보통 구문처럼 익히고, 틀렸던 말은 채점 뒤에만 보여 준다. */
+const FIX_SEP = " ¦ 뜻: ";
+function fixParts(ko) { ko = String(ko || ""); if (ko.indexOf(FIX_MARK) !== 0) return null; const r = ko.slice(FIX_MARK.length), i = r.indexOf(FIX_SEP); return i < 0 ? { was: r, mean: "" } : { was: r.slice(0, i), mean: r.slice(i + FIX_SEP.length) }; }
+function fixWas(id) { const p = DB.my.filter(x => x.id === id)[0], f = p && fixParts(p.ko); return f ? f.was : null; }
+const koShow = ko => { const f = fixParts(ko); return f && f.mean ? f.mean : String(ko || ""); };
+function fixAdd(rec) { let n = 0; ((rec && rec.fx) || []).forEach(f => { if (!f || !fixOk(f.a, f.b)) return;
+    const full = f.s && f.k && fixOk(f.a, f.s) && !DB.my.some(p => p.en.toLowerCase() === String(f.b).trim().toLowerCase());      /* 온전한 문장과 뜻이 있으면 조각 대신 문장으로 */
+    if (addMyPhrase(full ? f.s : f.b, FIX_MARK + String(f.a).trim() + (full ? FIX_SEP + String(f.k).trim() : ""))) n++; }); return n; }
+/* 뜻이 없는 예전 틀렸던 문장: 선생님에게 뜻을 한 번에 받아 채운다 (글 요청 한 번, 스무 개까지) */
+const SYS_MEAN = 'You translate short English phrases for a Korean learner. Return ONLY JSON: {"items": [{"i": int, "ko": string}]} with one natural, short Korean meaning (polite 해요체 where a sentence) for each numbered phrase. No explanations.';
+let FIX_FILLING = false;
+function fixFill(done) {
+  const todo = fixList().filter(p => !fixParts(p.ko).mean).slice(0, 20);
+  if (!todo.length || FIX_FILLING || !G.key) { if (done) done(0); return; }
+  FIX_FILLING = true;
+  gCall({ sys: SYS_MEAN, temp: 0.1, lite: true, parts: [{ text: "MODE: mean\n" + todo.map((p, i) => (i + 1) + ". " + p.en).join("\n") }] }, () => {}, r => {
+    FIX_FILLING = false; let n = 0;
+    (Array.isArray(r && r.items) ? r.items : []).forEach(x => { const p = todo[(+x.i | 0) - 1], ko = String(x && x.ko || "").replace(/\s+/g, " ").trim().slice(0, 120);
+      if (p && ko && /[\uAC00-\uD7A3]/.test(ko) && !fixParts(p.ko).mean) { p.ko = (p.ko + FIX_SEP + ko).slice(0, 320); n++; } });
+    if (n) { dbSave("my"); if (typeof syncSoon === "function") syncSoon(); }
+    if (done) done(n);
+  }, () => { FIX_FILLING = false; if (done) done(0); });
+}
 function fixCollect() { let n = 0; DB.log.forEach(r => { n += fixAdd(r); }); return n; }
 function fixList() { return DB.my.filter(p => String(p.ko || "").indexOf(FIX_MARK) === 0); }
 function pickFix(n) {
   const d = today(), box = p => { const s = DB.srs[p.id]; return s && s.n > 0 ? (s.d <= d ? s.b : 50 + s.b) : -1; };
   return fixList().slice().sort((x, y) => box(x) - box(y) || y.t - x.t).slice(0, n)
-    .map(p => ({ ref: p.id, task: (DB.srs[p.id] && DB.srs[p.id].n > 0) ? "recall" : "shadow", ko: p.ko, en: p.en, focus: "" }));
+    .map(p => ({ ref: p.id, task: taskFor(p.id), ko: koShow(p.ko), en: p.en, focus: "" }));
 }
 /* 이전 버전(v1~v5) 기록을 옮겨 온다. 원본(ec_history)은 지우지 않는다. */
 function migrate() {
@@ -208,11 +230,11 @@ function natList() {                               /* 대화 대답과 레벨 �
 function basicList() { return easyMode() ? D.BASIC : D.BASIC.filter(p => DB.srs[p.id] && DB.srs[p.id].n > 0); }   /* 표준 과정에서는 이미 익히던 기초 구문만 남긴다 */
 /* 기초 과정에서는 표준 구문 가운데 쉬운 두 갈래(일상·생활, 대화 이어가기)만 쓴다. 간증·설교 같은 어려운 구문은 전에 익히던 것이 있어도 복습에 나오지 않는다. */
 function stdList() { return easyMode() ? D.PHRASES.filter(p => p.c === "daily" || p.c === "keep") : D.PHRASES; }
-function allPhrases() { return DB.my.map(p => ({ id: p.id, c: "my", en: p.en, ko: p.ko || "" })).concat(basicList(), stdList()); }
+function allPhrases() { return DB.my.map(p => ({ id: p.id, c: "my", en: p.en, ko: koShow(p.ko) })).concat(basicList(), stdList()); }
 function phraseState(id) { const s = DB.srs[id]; if (!s || !s.n) return "new"; return s.b >= 4 ? "known" : "learning"; }
 function newOrder() {                              /* 새 구문 순서: 내가 담은 것 먼저, 그다음 상황별로 하나씩 돌아가며 */
   const cats = Object.keys(D.CATS), by = {}; cats.forEach(c => { by[c] = stdList().filter(p => p.c === c); });
-  const out = DB.my.map(p => ({ id: p.id, c: "my", en: p.en, ko: p.ko || "" })).concat(easyMode() ? D.BASIC : []);   /* 기초 과정은 쉬운 구문 40개를 먼저 */
+  const out = DB.my.map(p => ({ id: p.id, c: "my", en: p.en, ko: koShow(p.ko) })).concat(easyMode() ? D.BASIC : []);   /* 기초 과정은 쉬운 구문 40개를 먼저 */
   for (let i = 0; ; i++) { let any = false; cats.forEach(c => { if (by[c][i]) { out.push(by[c][i]); any = true; } }); if (!any) break; }
   return out;
 }
@@ -224,14 +246,16 @@ function dueList() {
 function pickPhrases(n) {
   const due = dueList(), fresh = newOrder().filter(p => !(DB.srs[p.id] && DB.srs[p.id].n > 0));
   return due.slice(0, n).concat(fresh.slice(0, Math.max(0, n - due.length)))
-    .map(p => ({ ref: p.id, task: (DB.srs[p.id] && DB.srs[p.id].k > 0) ? "recall" : "shadow", ko: p.ko, en: p.en, focus: "" }));
+    .map(p => ({ ref: p.id, task: taskFor(p.id), ko: p.ko, en: p.en, focus: "" }));
 }
+/* 새 구문은 한 번, 틀렸던 문장은 두 번 듣고 따라 말한 뒤에 우리말만 보고 말한다 */
+function taskFor(id) { const s = DB.srs[id], need = fixWas(id) != null ? 2 : 1; return s && s.k >= need ? "recall" : "shadow"; }
 function addMyPhrase(en, ko) {
   en = String(en || "").trim().replace(/\s+/g, " "); ko = String(ko || "").trim();
   if (!en) return null;
   const low = en.toLowerCase();
   if (allPhrases().some(p => p.en.toLowerCase() === low)) return false;
-  const p = { id: "my" + newId(), en: en.slice(0, 200), ko: ko.slice(0, 200), t: now() };
+  const p = { id: "my" + newId(), en: en.slice(0, 200), ko: ko.slice(0, 320), t: now() };
   DB.my.push(p); dbSave("my"); return p;
 }
 
@@ -912,7 +936,7 @@ const SYS_MODE = {
     ' "pronunciation": [{"word": string, "heard_ko": string (how it sounded), "tip_ko": string (how to fix it), "tag": string}] (at most 4, only sounds you really heard wrong),',
     ' "intonation_ko": string (stress, rhythm, pitch movement),',
     ' "fluency_ko": string (pauses, speed, restarts; use the device numbers),',
-    ' "grammar": [{"said": string (his words), "better": string, "why_ko": string, "tag": string}] (at most 4),',
+    ' "grammar": [{"said": string (his words), "better": string, "why_ko": string, "tag": string, "sent": string (the full corrected sentence that contains "better", 14 words or fewer, in simple words), "sent_ko": string (the natural Korean meaning of "sent")}] (at most 4),',
     ' "natural": string (his whole answer the way a native speaker would say it: same meaning, same length, simple words he can reuse),',
     ' "sents": [{"en": string, "ko": string}] (every sentence of "natural", in the same order, one sentence per item, each with its natural Korean meaning),',
     ' "chunks": [{"en": string, "ko": string}] (take the ONE or TWO sentences of "natural" where his word order was most Korean, or the first two sentences if order was fine; cut them into meaning chunks in English order — subject+verb first, then object, place, time, reason; "ko" is the Korean meaning of that chunk only; at most 10 chunks),',
@@ -939,7 +963,7 @@ const SYS_MODE = {
     '{"transcript": string,',
     ' "covered": int (0-100: how much of the meaning of TARGET he conveyed),',
     ' "fixed_ko": string (which mistakes from the first attempt are now fixed; quote the words),',
-    ' "left": [{"said": string, "better": string, "why_ko": string, "tag": string}] (mistakes still present, at most 3),',
+    ' "left": [{"said": string, "better": string, "why_ko": string, "tag": string, "sent": string (the full corrected sentence that contains "better", 14 words or fewer, in simple words), "sent_ko": string (the natural Korean meaning of "sent")}] (mistakes still present, at most 3),',
     ' "pronunciation": [{"word": string, "heard_ko": string, "tip_ko": string, "tag": string}] (at most 3),',
     ' "cheer_ko": string (one honest sentence comparing this attempt with the first),',
     ' "delivery_tags": [string] (only d_filler and/or d_ending),',
@@ -960,7 +984,7 @@ const SYS_MODE = {
     ' "comment_ko": string (two sentences: the main strength, then the main limit),',
     ' "natural": string (for TASK TYPE read: an empty string. Otherwise his whole answer the way a native speaker would say it: same meaning, same length, simple words he can reuse),',
     ' "sents": [{"en": string, "ko": string}] (every sentence of "natural", in the same order, one sentence per item, each with its natural Korean meaning; empty for TASK TYPE read),',
-    ' "grammar": [{"said": string, "better": string, "tag": string}] (at most 4),',
+    ' "grammar": [{"said": string, "better": string, "tag": string, "sent": string (the full corrected sentence that contains "better", 14 words or fewer, in simple words), "sent_ko": string (the natural Korean meaning of "sent")}] (at most 4),',
     ' "pronunciation": [{"word": string, "tag": string}] (at most 4),',
     ' "delivery_tags": [string] (only d_filler and/or d_ending)}'
   ].join("\n")
@@ -1031,7 +1055,9 @@ function metricsText(m) {
 const tagOk = (g, kind) => { g = String(g || "").trim(); return D.TAGS[g] && !DEVICE_TAGS[g] && (!kind || D.TAGS[g].k === kind) ? g : ""; };
 const str = (v, n) => String(v == null ? "" : v).trim().slice(0, n || 600);
 function cleanScores(s) { s = s || {}; return { pron: num(s.pronunciation), inton: num(s.intonation), flu: num(s.fluency), gram: num(s.grammar), vocab: num(s.vocabulary), task: num(s.task) }; }
-function cleanGram(a, n) { return (Array.isArray(a) ? a : []).slice(0, n).map(g => ({ said: str(g && g.said, 160), better: str(g && g.better, 160), why: str(g && g.why_ko, 240), tag: tagOk(g && g.tag) || "g_word" })).filter(g => g.better && !sameSay(g.said, g.better)); }
+function cleanGram(a, n) { return (Array.isArray(a) ? a : []).slice(0, n).map(g => ({ said: str(g && g.said, 160), better: str(g && g.better, 160), why: str(g && g.why_ko, 240), tag: tagOk(g && g.tag) || "g_word", sent: str(g && g.sent, 160), sentKo: str(g && g.sent_ko, 160) })).filter(g => g.better && !sameSay(g.said, g.better)); }
+/* 기록에 남기는 고침: a 틀렸던 말, b 고친 말, g 약점, s 고친 말이 든 온전한 문장, k 그 문장의 우리말 뜻 */
+function fxOf(g) { const o = { a: g.said.slice(0, 120), b: g.better.slice(0, 120), g: g.tag }; if (g.sent && g.sentKo && !koBadText(g.sentKo)) { o.s = g.sent.slice(0, 140); o.k = g.sentKo.slice(0, 120); } return o; }
 /* 고친 말이 원래 말과 같으면(대소문자·구두점만 다르면) 고침이 아니다 */
 function sameSay(a, b) { const n = t => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); return n(a) === n(b); }
 function cleanPron(a, n) { return (Array.isArray(a) ? a : []).slice(0, n).map(p => ({ word: str(p && p.word, 40), heard: str(p && p.heard_ko, 160), tip: str(p && p.tip_ko, 240), tag: tagOk(p && p.tag, "p") })).filter(p => p.word); }
@@ -1083,6 +1109,7 @@ function stateMerge(o) {                            /* o의 내용을 이 기기
   Object.keys(gone).forEach(id => { if (!DB.gone[id]) { DB.gone[id] = +gone[id] || 1; out.gone++; } });
   /* 내 구문: 합집합 (같은 영어는 하나) */
   (Array.isArray(o.my) ? o.my : []).forEach(p => { if (p && p.id && p.en && !DB.gone[p.id] && !DB.my.some(q => q.id === p.id || q.en.toLowerCase() === String(p.en).toLowerCase())) { DB.my.push({ id: String(p.id), en: String(p.en), ko: String(p.ko || ""), t: +p.t || now() }); out.my++; } });
+  (Array.isArray(o.my) ? o.my : []).forEach(p => { const q = p && p.id && DB.my.filter(x => x.id === p.id)[0], a = q && fixParts(q.ko), b = q && fixParts(p.ko); if (a && b && !a.mean && b.mean) { q.ko = String(p.ko).slice(0, 320); out.my++; } });   /* 다른 기기에서 채운 뜻을 받아 온다 */
   const before = DB.my.length; DB.my = DB.my.filter(p => !DB.gone[p.id]); if (DB.my.length !== before) out.my++;
   /* 날짜별 시간·문장 수·단계: 큰 값 */
   const day = isMap(o.day) ? o.day : {};

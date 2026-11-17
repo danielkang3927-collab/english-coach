@@ -42,6 +42,7 @@ MOCK = r"""
       return {title:"A New Friend " + n, title_ko:"새 친구", sents:S.map(function(e, i){ return {en:e, ko:"뜻 " + (i+1), note_ko: i === 1 ? "not far 에서 t 소리가 약해져요." : ""}; }), questions:[{q_ko:"어디에 갔나요?", options_ko:["시장에 갔어요.","학교에 갔어요.","병원에 갔어요.","교회에 갔어요."], answer:0, a_ko:"시장에 갔어요."},{q_ko:"누구와 친구가 됐나요?", options_ko:["옆집 아이","과일 파는 분","버스 기사","선생님"], answer:1, a_ko:"과일 파는 분."}], words:[{en:"seller", ko:"파는 사람"},{en:"fresh", ko:"신선한"},{en:"far from", ko:"~에서 먼"}]};
     }
     if(mode === "talk" && M.easyReply){ M.easyReply = false; return {transcript:"I am good", reply:"Good! How do you feel today?", reply_ko:"좋아요! 오늘 기분이 어때요?", hint:{en:"I feel good today.", ko:"오늘 기분이 좋아요."}, praise_ko:"또렷하게 말했어요.", focus_ko:"", repeat_ko:"", pronunciation:[], intonation_ko:"", fluency_ko:"", grammar:[], natural:"I am good.", sents:[{en:"I am good.", ko:"잘 지내요."}], chunks:[], order_ko:"", phrases:[], delivery_tags:[], scores:{pronunciation:60, intonation:60, fluency:50, grammar:60}}; }
+    if(mode === "mean"){ var L = text.split("\n").filter(function(x){ return /^\d+\. /.test(x); }); return {items: L.map(function(x, i){ return {i: i + 1, ko: "뜻 풀이 " + (i + 1) + "번이에요."}; })}; }
     if(mode === "talk"){
       if(M.talkEmpty) return {transcript:"", reply:"", scores:{pronunciation:null,intonation:null,fluency:null,grammar:null}};
       return {transcript:T[n % T.length], reply:"Thank you for sharing. What did you do last weekend?", praise_ko:"가족 이야기를 또렷하게 시작했어요.", focus_ko:"주어가 하나일 때 동사에 s를 붙여 보세요.",

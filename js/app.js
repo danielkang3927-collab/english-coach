@@ -392,7 +392,7 @@ function startPhr() { const p = PLAN().phr, done = dayRec().st.phr; startBatch("
 function startDr() { const p = PLAN().dr, done = dayRec().st.dr; startBatch("dr", pickDrills(done < p && p - done >= 4 ? p - done : p), "약점·어순 훈련", "dr"); }
 function taskLine(it) {
   if (it.task === "recall") return String(it.ko || "").indexOf(FIX_MARK) === 0 ? "전에 틀렸던 말입니다. 바른 문장으로 말해 보세요." : "우리말을 보고 영어로 말해 보세요.";
-  if (it.task === "shadow") return "새 구문입니다. 듣고 그대로 따라 말해 보세요.";
+  if (it.task === "shadow") return fixWas(it.ref) != null ? "선생님이 고쳐 준 문장입니다. 듣고 그대로 따라 말해 보세요." : "새 구문입니다. 듣고 그대로 따라 말해 보세요.";
   if (it.task === "translate") return "영어 어순으로 바로 말해 보세요. 주어와 동사부터.";
   return "소리 내어 읽어 보세요.";
 }
@@ -506,6 +506,7 @@ function drawBatchDone() {
     const x = A.res[i], s = A.kind === "phr" ? DB.srs[it.ref] : null;
     return '<div class="ec-res ' + (x.ok ? "ok" : "no") + '"><div class="ec-res-h"><b>' + (x.ok ? "✓" : "✗") + '</b> ' + esc(it.en) + ' ' + say(it.en) + '</div>' +
       (it.task !== "read" && it.ko ? '<div class="ec-sub">' + esc(it.ko) + '</div>' : "") +
+      (fixWas(it.ref) != null && String(it.ko || "").indexOf(FIX_MARK) !== 0 ? '<div class="ec-sub">전에는 「' + esc(fixWas(it.ref)) + '」라고 했어요.</div>' : "") +
       (x.heard ? '<div class="ec-kv">들린 말: ' + esc(x.heard) + '</div>' : "") + (x.note ? '<div class="ec-tip">' + esc(x.note) + '</div>' : "") +
       '<div class="ec-row">' + (x.ok ? "" : tagChip(x.tag)) + (s ? '<span class="ec-sub">다음 복습: ' + dueText(s) + '</span>' : "") + '</div></div>';
   }).join("");
@@ -549,7 +550,7 @@ function talkSend() {
     if (!c.transcript) { me.pend = null; me.phase = "idle"; pendSave(); if (U.tab !== "train") U.flash = { text: me.title + ": 말소리를 알아듣지 못했다고 합니다." }; render(); setMsg("선생님이 말소리를 알아듣지 못했다고 합니다. 다시 녹음해 주세요.", true); return; }
     const sc = D.SCENES[me.scene], words = wc(c.transcript), tags = tagsOf(c, p.m, words, !!sc.script);
     const rec = logAdd({ k: "talk", sc: sc.id, q: me.q.slice(0, 240), tx: c.transcript.slice(0, 900), nat: c.natural.slice(0, 900), ns: c.sents.map(x => ({ en: x.en, ko: x.ko })), ch: c.chunks, s: [c.sc.pron, c.sc.inton, c.sc.flu, c.sc.gram], m: mPack(p.m, words), tags,
-      fx: c.gram.map(g => ({ a: g.said.slice(0, 120), b: g.better.slice(0, 120), g: g.tag })), pr: c.pron.map(x => ({ w: x.word, g: x.tag })), md: model });
+      fx: c.gram.map(g => fxOf(g)), pr: c.pron.map(x => ({ w: x.word, g: x.tag })), md: model });
     const day = dayRec(); day.st.talk++; day.said += sentences(c.transcript); daySave();
     me.turns.push({ q: me.q, r: c, m: p.m, words, tags, id: rec.id, model, open: false });
     me.q = c.reply || "Thank you. Please tell me more."; me.qKo = c.replyKo || ""; me.hint = c.hint || null; me.hintOpen = false; me.pend = null; me.phase = "idle";
@@ -677,7 +678,7 @@ function retellSend() {
     if (!c.transcript) { me.pend = null; me.phase = "hidden"; pendSave(); if (U.tab !== "train") U.flash = { text: me.title + ": 말소리를 알아듣지 못했다고 합니다." }; render(); setMsg("선생님이 말소리를 알아듣지 못했다고 합니다. 다시 녹음해 주세요.", true); return; }
     const words = wc(c.transcript), tags = tagsOf(c, p.m, words, false);
     me.mp = mPack(p.m, words);
-    logAdd({ k: "retell", src: src.id, tx: c.transcript.slice(0, 900), cov: c.covered, s: [c.sc.pron, c.sc.inton, c.sc.flu, c.sc.gram], m: me.mp, tags, fx: c.left.map(g => ({ a: g.said.slice(0, 120), b: g.better.slice(0, 120), g: g.tag })), pr: c.pron.map(x => ({ w: x.word, g: x.tag })), md: model });
+    logAdd({ k: "retell", src: src.id, tx: c.transcript.slice(0, 900), cov: c.covered, s: [c.sc.pron, c.sc.inton, c.sc.flu, c.sc.gram], m: me.mp, tags, fx: c.left.map(g => fxOf(g)), pr: c.pron.map(x => ({ w: x.word, g: x.tag })), md: model });
     const day = dayRec(); day.st.retell++; day.said += sentences(c.transcript); daySave();
     me.res = c; me.pend = null; me.phase = "done";
     if (arrived("다시 말하기 채점이 끝났습니다.")) window.scrollTo(0, 0);
@@ -732,7 +733,7 @@ function testSend() {
 function testFinish() {
   const T = A.tasks, calc = T.map(t => ({ k: t.k, m: t.clip.m, words: wc(t.res.transcript), sc: t.res.sc })), out = testScore(calc);
   let tags = [], fx = [], pr = [];
-  T.forEach((t, i) => { tags = tags.concat(tagsOf(t.res, t.clip.m, calc[i].words, t.k === "read")); fx = fx.concat(t.res.gram.map(g => ({ a: g.said.slice(0, 120), b: g.better.slice(0, 120), g: g.tag }))); pr = pr.concat(t.res.pron.map(x => ({ w: x.word, g: x.tag }))); });
+  T.forEach((t, i) => { tags = tags.concat(tagsOf(t.res, t.clip.m, calc[i].words, t.k === "read")); fx = fx.concat(t.res.gram.map(g => fxOf(g))); pr = pr.concat(t.res.pron.map(x => ({ w: x.word, g: x.tag }))); });
   const prev = tests().slice(-1)[0] || null;
   logAdd({ k: "test", score: out.total, lv: out.level, parts: out.parts, set: A.set, tags: uniq(tags), fx: fx.slice(0, 8), pr: pr.slice(0, 8), md: T[0].model,
     tasks: T.map((t, i) => ({ k: t.k, tx: t.res.transcript.slice(0, 600), s: [t.res.sc.pron, t.res.sc.inton, t.res.sc.gram, t.res.sc.vocab, t.res.sc.task], m: mPack(t.clip.m, calc[i].words), c: t.res.comment.slice(0, 300), nat: (t.res.natural || "").slice(0, 900), ns: (t.res.sents || []).map(x => ({ en: x.en, ko: x.ko })) })) });
@@ -801,7 +802,7 @@ function drawPhrases() {
   const cu = pickCumul(20);
   h += card("누적 암송 (오늘 + 어제)", '<p class="ec-sub">오늘 익힌 문장에 어제 익힌 문장을 얹어, 우리말만 보고 이어서 말해 봅니다. 정답은 채점한 뒤에 나옵니다. 자기 전에 한 번 하면 좋습니다. 복습 간격은 바뀌지 않습니다.</p>' +
     btn(cu.length ? "누적 암송 시작 (" + cu.length + "문장)" : "오늘·어제 익힌 문장이 아직 없습니다", "cumGo", null, cu.length ? "" : "ghost"));
-  h += card("틀렸던 문장 다시 말하기", '<p class="ec-sub">대화·다시 말하기·레벨 테스트에서 선생님이 고쳐 준 문장은 자동으로 내 구문에 담깁니다. 처음에는 듣고 따라 말하고, 다음부터는 틀렸던 말을 보고 바른 문장으로 말합니다. 입에 붙을 때까지 1·3·7·14·30·60일 간격으로 다시 나옵니다.</p>' +
+  h += card("틀렸던 문장 다시 말하기", '<p class="ec-sub">대화·다시 말하기·레벨 테스트에서 선생님이 고쳐 준 문장은 자동으로 내 구문에 담깁니다. 처음 두 번은 듣고 따라 말하고, 그다음부터는 우리말 뜻을 보고 말합니다. 전에 틀렸던 말은 채점한 뒤에 보여 줍니다. 입에 붙을 때까지 1·3·7·14·30·60일 간격으로 다시 나옵니다.</p>' +
     '<div class="ec-row">' + btn(fx.length ? "틀렸던 문장 훈련 (" + fx.length + "개 중 " + Math.min(8, fx.length) + "개)" : "아직 고친 문장이 없습니다", "fixGo", null, fx.length ? "" : "ghost") + btn("지난 기록에서 모으기", "fixScan", null, "ghost small") + '</div>' + msgBox(U.fixMsg));
   h += card("이어 듣기 · 따라 말하기", loopCard());
   h += card("선생님 모범답안 모음", natCard());
@@ -1314,3 +1315,5 @@ window.addEventListener("wheel", e => {
   const ready = WPULL.d >= PULL.NEED * 2 && now - WPULL.t0 >= PULL.HOLD; pullShow(WPULL.d / 2, ready);
   clearTimeout(WPULL.tm); WPULL.tm = setTimeout(() => { if (WPULL.done) return; const ok = WPULL.d >= PULL.NEED * 2 && WPULL.last - WPULL.t0 >= PULL.HOLD && pullOk(); WPULL.d = 0; if (ok) { WPULL.done = true; if (PULL.el) PULL.el.textContent = "새로 고치는 중…"; pullRefresh(); } else pullShow(0, false); }, 220);
 }, { passive: true });
+/* 뜻이 없는 예전 틀렸던 문장의 뜻을 한 번 받아 둔다 (앱을 열고 잠시 뒤, 하던 훈련이 없을 때) */
+setTimeout(() => { if (G.key && !A && !REC.on) fixFill(n => { if (n && U.tab === "phr" && !REC.on && !A) render(); }); }, 6000);
