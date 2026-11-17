@@ -408,7 +408,11 @@ function drawBatch() {
   const it = A.items[A.i], shown = A.phase === "shown", fl = focusLine(it);
   let h = '<div class="ec-prog"><span>' + (A.i + 1) + ' / ' + n + '</span><div class="ec-bar"><i style="width:' + Math.round((A.i + (shown ? 1 : 0)) / n * 100) + '%"></i></div></div>';
   h += '<p class="ec-sub">' + taskLine(it) + '</p>' + (fl ? '<div class="ec-focus">' + esc(fl) + '</div>' : "");
-  if (it.task === "recall" || it.task === "translate") h += '<div class="ec-task">' + esc(it.ko) + '</div>';
+  if (it.task === "recall" || it.task === "translate") {
+    const isFix = String(it.ko || "").indexOf(FIX_MARK) === 0, mask = isFix || it.hinted;      /* 틀렸던 말은 우리말 뜻이 없으니 첫 글자 힌트를 처음부터 보여 준다 */
+    h += '<div class="ec-task">' + esc(it.ko) + (mask ? '<small class="ec-hintmask">' + (isFix ? "바른 문장: " : "힌트: ") + esc(hintMask(it.en)) + '</small>' : "") + '</div>';
+    if (!shown && !REC.on) h += '<div class="ec-row">' + (mask ? "" : btn("첫 글자 힌트", "bHint", null, "ghost small")) + '<button class="ec-btn ghost small" data-act="bPeek">' + (it.heard ? "정답 다시 듣기" : "모르겠으면 정답 듣기") + '</button></div>' + (it.heard ? '<p class="ec-sub">정답을 들었습니다. 듣고 따라 말해도 됩니다. 이 문장은 내일 다시 묻습니다.</p>' : "");
+  }
   else h += '<div class="ec-task en">' + esc(it.en) + ' ' + say(it.en) + '<small>' + esc(it.ko) + '</small></div>';
   if (shown) {
     const c = A.clips[A.i];
@@ -464,7 +468,7 @@ function batchSend() {
       }
       if (!x.ok && !x.tag && me.kind === "dr" && x.heard) x.tag = it.focus;
       if (x.ok) x.tag = "";
-      if (me.kind === "phr" && !me.again) srsMark(it.ref, x.ok);
+      if (me.kind === "phr" && !me.again) { if (x.ok && it.heard) srsPeek(it.ref); else srsMark(it.ref, x.ok); }
     });
     if (me.kind === "phr" && !me.again) dbSave("srs");
     logAdd({ k: me.kind, n, ok: res.filter(x => x.ok).length, it: me.items.map((it, i) => [it.ref, res[i].ok ? 1 : 0, res[i].score, res[i].tag, res[i].ok ? "" : res[i].heard.slice(0, 80)]), md: model });
@@ -987,6 +991,8 @@ const ACT = {
     else if (A.type === "test" && A.phase === "ask") testRec();
   },
   /* 묶음 훈련 */
+  bHint: () => { if (!A || A.type !== "batch" || REC.on) return; A.items[A.i].hinted = true; pendSave(); render(); },
+  bPeek: () => { if (!A || A.type !== "batch" || REC.on) return; const it = A.items[A.i]; it.heard = true; pendSave(); render(); speak(it.en); },
   bRedo: () => { A.clips.length = A.i; A.phase = "ask"; setMsg(""); render(); autoSay(A.items[A.i]); },
   bNext: () => { if (A.i + 1 >= A.items.length) { batchSend(); return; } A.i++; A.phase = "ask"; setMsg(""); render(); window.scrollTo(0, 0); autoSay(A.items[A.i]); },
   bSend: () => { if (A.clips.length) batchSend(); },

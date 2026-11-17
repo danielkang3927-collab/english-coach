@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 38;
+const BUILD = 39;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -59,7 +59,7 @@ function newId() { return now().toString(36) + "-" + Math.random().toString(36).
 function logAdd(rec) { rec.id = newId(); rec.t = now(); DB.log.push(rec); dbSave("log"); fixAdd(rec); if (typeof syncMark === "function") syncMark(rec.id); return rec; }
 /* 고친 문장 → 내 구문. 틀리게 말한 문장을 보여 주고 바른 문장을 소리 내어 말하게 한다 (간격 반복은 구문과 같다). */
 const FIX_MARK = "틀렸던 말: ";
-function fixOk(a, b) { const w = String(b || "").trim().split(/\s+/).length; return !!a && w >= 3 && w <= 16 && /[A-Za-z]/.test(b) && String(a).trim().toLowerCase() !== String(b).trim().toLowerCase(); }
+function fixOk(a, b) { const w = String(b || "").trim().split(/\s+/).length; return !!a && !/[\u3131-\uD7A3]/.test(String(a)) && w >= 3 && w <= 16 && /[A-Za-z]/.test(b) && String(a).trim().toLowerCase() !== String(b).trim().toLowerCase(); }
 function fixAdd(rec) { let n = 0; ((rec && rec.fx) || []).forEach(f => { if (f && fixOk(f.a, f.b) && addMyPhrase(f.b, FIX_MARK + String(f.a).trim())) n++; }); return n; }
 function fixCollect() { let n = 0; DB.log.forEach(r => { n += fixAdd(r); }); return n; }
 function fixList() { return DB.my.filter(p => String(p.ko || "").indexOf(FIX_MARK) === 0); }
@@ -156,6 +156,10 @@ const STEP_NAME = { rev: "⓪ 지난 문장 복습", phr: "① 구문 복습", d
 
 /* ---------- 구문 간격 반복 ---------- */
 const IV = [0, 1, 3, 7, 14, 30, 60];
+/* 정답을 듣고 맞힌 문장: 단계는 올리지 않고 내일 다시 묻는다 */
+function srsPeek(id) { const d = today(), s = DB.srs[id] || (DB.srs[id] = { b: 0, d: d, n: 0, k: 0, l: d }); s.n++; s.k++; s.l = d; s.b = Math.max(1, s.b); s.d = d + 1; return s; }
+/* 첫 글자 힌트: 낱말마다 첫 글자만 남기고 나머지는 밑줄 */
+function hintMask(en) { return String(en || "").split(/\s+/).map(w => w.replace(/[A-Za-z0-9]+(?:'[A-Za-z]+)?/g, (m, off) => off === 0 || !/[A-Za-z0-9]/.test(w.slice(0, off)) ? m[0] + m.slice(1).replace(/[A-Za-z0-9]/g, "_") : m)).join(" "); }
 function srsMark(id, ok) {
   const d = today(), s = DB.srs[id] || (DB.srs[id] = { b: 0, d: d, n: 0, k: 0, l: d });
   s.n++; s.l = d;
