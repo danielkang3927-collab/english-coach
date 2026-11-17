@@ -108,7 +108,7 @@ function keepAwake(on) {                           /* 녹음·채점 중에는 �
 
 /* ---------- 홈 ---------- */
 function planMonths(hours) { const perWeek = DB.set.minutes * 6 / 60, mo = Math.round(hours / perWeek / 4.345); return mo >= 12 ? "약 " + Math.floor(mo / 12) + "년" + (mo % 12 ? " " + (mo % 12) + "개월" : "") : "약 " + mo + "개월"; }
-function missionsOfWeek(w) { const n = D.MISSIONS.length; return [0, 1, 2].map(i => D.MISSIONS[((w * 3 + i) % n + n) % n]); }
+function missionsOfWeek(w) { const L = easyMode() ? D.MISSIONS.filter(m => D.EASY_MISSIONS.indexOf(m.id) >= 0) : D.MISSIONS, n = L.length; return [0, 1, 2].map(i => L[((w * 3 + i) % n + n) % n]); }
 function weekChange() {
   const d = today(), pick = (a, b) => DB.log.filter(r => r.k === "talk" && r.m && dayNo(r.t) > d - a && dayNo(r.t) <= d - b);
   const cur = pick(7, 0), prev = pick(14, 7); if (cur.length < 2 || prev.length < 2) return null;
@@ -167,6 +167,7 @@ function drawHome() {
   if (fbReady() && SYNC.ask) h += card("계정 확인이 필요합니다", '<p>이 기기의 기록을 지금 로그인한 계정에 합칠지 정해 주세요.</p>' + btn("설정에서 정하기", "tab", "set"));
   else if (fbReady() && !AUTH.uid) h += card("기기를 바꿔도 기록이 이어지게", '<p class="ec-sub">구글로 로그인하면 휴대폰·아이패드·노트북에서 같은 기록을 씁니다. 기록은 합치기만 하고 지우지 않습니다.</p>' + btn("구글로 로그인", "login"));
   if (G.key && AUTH.uid && KEY_SRC().g === "shared") h += card("내 무료 키를 넣으면 더 안정적입니다", '<p class="ec-sub">지금은 함께 쓰는 키로 채점하고 있어, 여러 사람이 쓰면 하루 무료 한도가 금방 찹니다. 구글 계정으로 내 키를 만들어 넣으면(무료, 2분) 내 한도를 혼자 씁니다.</p><p class="ec-sub">① 아래 주소에서 구글로 로그인 → 「API 키 만들기」 → 키 복사<br>② 이 앱 「설정」의 Gemini 이용 키 칸에 붙여 넣고 저장</p><p><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></p><div class="ec-row">' + btn("설정 열기", "tab", "set", "small") + '</div>');
+  if (easyMode()) h += card("기초 과정으로 진행 중", '<p class="ec-sub">쉬운 문장을 천천히, 짧게, 되풀이합니다. 오늘 할 일은 아래 「오늘」의 단계만 차례로 누르면 됩니다. 소리가 빠르면 「설정」에서 더 느리게 바꿀 수 있습니다.</p><p class="ec-sub">익힌 쉬운 구문 <b>' + D.BASIC.filter(p => phraseState(p.id) === "known").length + '</b> / ' + D.BASIC.length + ' · 연습 중 ' + D.BASIC.filter(p => phraseState(p.id) === "learning").length + '</p>');
   h += card("나의 학습 현황", weekHtml());
   /* 등급과 목표 */
   let lv = "";
@@ -297,7 +298,7 @@ function lisStart(p, topic) {
 }
 const lisQs = () => (A && A.p && A.p.qs || []).map((q, i) => ({ q: q, i: i })).filter(x => x.q.opts && x.q.opts.length);
 const lisQn = () => lisQs().length, lisQdone = () => lisQs().filter(x => A.pick[x.i] != null).length, lisQok = () => lisQs().filter(x => A.pick[x.i] === x.q.ans).length;
-function lisPick(sents) { const n = sents.length, k = Math.min(3, n), out = []; for (let j = 0; j < k; j++) { const i = Math.min(n - 1, Math.round((j + 0.5) * n / k - 0.5)); if (out.indexOf(i) < 0) out.push(i); } return out; }
+function lisPick(sents) { const n = sents.length, k = Math.min(easyMode() ? 2 : 3, n), out = []; for (let j = 0; j < k; j++) { const i = Math.min(n - 1, Math.round((j + 0.5) * n / k - 0.5)); if (out.indexOf(i) < 0) out.push(i); } return out; }
 function lisAll(echo) { loopStart(A.p.sents.map(x => ({ en: x.en, role: "teacher" })), { rate: U.loopRate, echo: !!echo, forever: !!echo }); A.heard++; render(); }
 function drawListen() {
   const p = A.p, st = A.step;
@@ -499,6 +500,7 @@ function startTalk(idx, mission) {
   const sc = D.SCENES[idx];
   if (sc.script && !U.f.script.trim()) { go("train"); setMsg("읽을 영어 원고를 먼저 넣어 주세요.", true); return; }
   A = { type: "talk", title: sc.name, scene: idx, script: sc.script ? U.f.script.trim().slice(0, 3000) : "", turns: [], q: openerFor(sc), phase: "idle", pend: null, allOpen: false, more: stepDone("talk") };   /* 오늘 몫을 이미 채우고 다시 시작했으면 끊지 않는다 */
+  if (easyMode() && !sc.script && !mission) { const eo = D.EASY_OPEN[(today() + U.talkN) % D.EASY_OPEN.length]; A.title = "쉬운 대화"; A.q = eo.en; A.qKo = eo.ko; A.hint = eo.hint; }
   if (mission) { A.title = "미션 · " + mission.t; A.q = mission.open; A.mission = mission.id; A.more = false; }
   U.talkN++; go("train");
   if (DB.set.autoSpeak) speak(A.q, "teacher");
@@ -529,7 +531,7 @@ function talkSend() {
       fx: c.gram.map(g => ({ a: g.said.slice(0, 120), b: g.better.slice(0, 120), g: g.tag })), pr: c.pron.map(x => ({ w: x.word, g: x.tag })), md: model });
     const day = dayRec(); day.st.talk++; day.said += sentences(c.transcript); daySave();
     me.turns.push({ q: me.q, r: c, m: p.m, words, tags, id: rec.id, model, open: false });
-    me.q = c.reply || "Thank you. Please tell me more."; me.pend = null; me.phase = "idle";
+    me.q = c.reply || "Thank you. Please tell me more."; me.qKo = c.replyKo || ""; me.hint = c.hint || null; me.hintOpen = false; me.pend = null; me.phase = "idle";
     if (!me.more && stepDone("talk")) me.goal = true;            /* 오늘 정한 횟수를 채우면 여기서 끝낸다 */
     if (me.mission && !me.missed) { me.missed = true; me.goal = true; me.more = false; missDone(me.mission, "발음 " + r0(c.sc.pron) + " · 문법 " + r0(c.sc.gram) + " · " + words + "단어"); }
     if (arrived(me.title + ": 선생님 답이 왔습니다.")) { const el = $("ecLast"); if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" }); if (DB.set.autoSpeak && !me.goal) speak(me.q, "teacher"); }
@@ -572,7 +574,8 @@ function drawTalk() {
     return h + card(A.mission ? "미션을 마쳤습니다 ✓" : "오늘 대화 " + PLAN().talk + "번을 채웠습니다", '<p class="ec-sub">위에서 방금 대답의 고침을 확인하고 마치면 됩니다. 정한 횟수를 채웠으니 여기서 끝냅니다.</p><div class="ec-row">' +
       btn("대화 마치기", "tEnd") + (ns && ns !== "talk" ? btn("다음: " + STEP_NAME[ns], "tNext", null, "ghost") : "") + '</div><div class="ec-row end">' + btn("더 이야기하기", "tMore", null, "ghost small") + '</div>');
   }
-  h += '<div class="ec-bub"><small>선생님</small>' + esc(A.q) + '<div>' + say(A.q, "다시 듣기", "teacher") + '</div></div>';
+  h += '<div class="ec-bub"><small>선생님</small>' + esc(A.q) + (A.qKo ? '<div class="ec-sub">' + esc(A.qKo) + '</div>' : "") + '<div>' + say(A.q, "다시 듣기", "teacher") + (A.hint ? ' ' + btn(A.hintOpen ? "힌트 닫기" : "어떻게 대답할지 힌트", "tHint", null, "ghost small") : "") + '</div>' +
+    (A.hint && A.hintOpen ? '<div class="ec-nat"><p>' + esc(A.hint.en) + ' ' + say(A.hint.en, "듣기") + (A.hint.ko ? '<br><span class="ec-sub">' + esc(A.hint.ko) + '</span>' : "") + '</p><p class="ec-sub">이렇게 시작해도 좋습니다. 듣고 따라 말한 뒤, 내 이야기로 바꿔 보세요.</p></div>' : "") + '</div>';
   if (sc.script) h += '<div class="ec-task en ec-script">' + esc(A.script) + '</div>';
   let b = "";
   if (A.phase === "sending") b += '<p>선생님이 듣고 있습니다…</p>';
@@ -770,7 +773,7 @@ function drawOrderDetail(id) {
 /* ---------- 구문 ---------- */
 function drawPhrases() {
   const all = allPhrases(), cnt = { new: 0, learning: 0, known: 0 }; all.forEach(p => { cnt[phraseState(p.id)]++; });
-  const due = dueList().length, cats = [["all", "전체"]].concat(Object.keys(D.CATS).map(c => [c, D.CATS[c]]), [["my", "내 구문"]]);
+  const due = dueList().length, cats = [["all", "전체"]].concat(basicList().length ? [["basic", "기초"]] : [], Object.keys(D.CATS).map(c => [c, D.CATS[c]]), [["my", "내 구문"]]);
   let h = card("구문", '<div class="ec-scores">' + statCell("익힘", cnt.known) + statCell("연습 중", cnt.learning) + statCell("새 구문", cnt.new) + '</div><p class="ec-sub">문장을 만들지 말고 덩어리째 꺼내 쓰는 연습입니다. 맞히면 1·3·7·14·30·60일 뒤에 다시 묻고, 네 번 이어 맞히면 「익힘」입니다.</p>' +
     btn(due ? "오늘 복습 시작 (복습할 것 " + due + "개)" : "새 구문 익히기", "start", "phr", "wide"));
   const fx = fixList();
@@ -941,6 +944,11 @@ function drawSettings() {
     '<p class="ec-sub"><b>크롬 (안드로이드·컴퓨터)</b><br>주소창 왼쪽 단추 → 「사이트 설정」 → 마이크 → 「허용」</p>' +
     '<p class="ec-sub">홈 화면에 추가한 앱은 Safari와 따로 물을 수 있습니다. 그때는 ②번을 해 주세요.</p>');
   h += card("하루 목표", '<div class="ec-seg">' + [5, 15, 30, 60].map(m => '<button data-act="minutes" data-arg="' + m + '" aria-pressed="' + (DB.set.minutes === m) + '">' + m + '분</button>').join("") + '</div><p class="ec-sub">' + DB.set.minutes + '분이면 하루에 구문 ' + PLAN().phr + '개, 훈련 ' + PLAN().dr + '문장, 대화 ' + PLAN().talk + '번' + (PLAN().retell ? ', 다시 말하기 ' + PLAN().retell + '번' : '') + '입니다.' + (PLAN().rev || PLAN().lis ? ' 여기에 ' + [PLAN().rev ? "지난 문장 복습 3문제" : "", PLAN().lis ? "듣기 이야기 한 편" : ""].filter(Boolean).join("과 ") + '이 더해집니다.' : '') + (DB.set.minutes === 5 ? ' 짧게 매일 하는 과정입니다. 하루 목표는 이 기기에만 적용되어 사람마다 다르게 고를 수 있습니다.' : '') + ' 주 6일 기준 한 단계에 ' + planMonths(200) + '.</p>');
+  { const em = easyMode(), cur = DB.set.level || "auto", lt = tests().slice(-1)[0];
+    h += card("과정 수준", '<div class="ec-seg">' + [["auto", "자동"], ["easy", "기초"], ["std", "표준"]].map(x => '<button data-act="level" data-arg="' + x[0] + '" aria-pressed="' + (cur === x[0]) + '">' + x[1] + '</button>').join("") + '</div>' +
+      '<p class="ec-sub">지금: <b>' + (em ? "기초 과정" : "표준 과정") + '</b>' + (cur === "auto" ? " (자동 — " + (lt ? "최근 레벨 테스트 " + lt.lv + " 기준" : "레벨 테스트 전이라 표준") + ")" : "") + '</p>' +
+      '<p class="ec-sub"><b>기초 과정</b>은 영어를 막 시작한 분을 위한 과정입니다. 쉬운 구문 40개부터 익히고, 읽어 주는 소리가 느려지고, 선생님이 짧고 쉬운 말로 묻고 우리말 뜻과 대답 힌트를 함께 보여 주며, 듣기 이야기도 짧고 쉬워집니다. 하루 분량도 가볍습니다. 이 설정은 이 기기에만 적용됩니다.</p>' +
+      '<label for="ecRate">읽어 주는 빠르기</label><select id="ecRate" data-chg="rate">' + [["", "자동 (기초 과정은 느리게)"], ["0.7", "아주 느리게"], ["0.8", "느리게"], ["0.9", "조금 느리게"], ["1", "보통"]].map(o => '<option value="' + o[0] + '"' + (String(DB.set.rate || "") === o[0] ? " selected" : "") + '>' + o[1] + '</option>').join("") + '</select>'); }
   h += card("소리", '<label class="ec-check"><input type="checkbox" id="ecAuto" data-chg="auto"' + (DB.set.autoSpeak ? " checked" : "") + '> 선생님 말과 정답을 자동으로 읽어 주기</label><p class="ec-sub">' + (XI.key && XI.voice ? "지금 읽어 주는 목소리: ElevenLabs " + esc(XI.name) + ". 막히면 기기 목소리로 읽습니다." : "읽어 주는 목소리는 기기에 들어 있는 영어 음성입니다.") + '</p>' + btn("목소리 들어 보기", "voice", null, "ghost small") + drawXi());
   h += drawSyncCard();
   h += '<p class="ec-ver">영어 말하기 코치 v' + BUILD + ' · 설계 문서 SPEC.md</p>';
@@ -989,6 +997,8 @@ const ACT = {
   tFold: a => { const t = A.turns[+a]; if (t) { t.open = !t.open; if (A.allOpen) { A.allOpen = false; A.turns.forEach((x, i) => { x.open = i !== +a; }); } render(); } },
   tAll: () => { A.allOpen = !A.allOpen; if (!A.allOpen) A.turns.forEach(t => { t.open = false; }); render(); },
   tSave: a => { const p = String(a).split("."), t = A.turns[+p[0]], ph = t && t.r.phrases[+p[1]]; if (ph) { addMyPhrase(ph.en, ph.ko); syncSoon(); render(); } },
+  tHint: () => { if (A && A.type === "talk") { const y = window.scrollY; A.hintOpen = !A.hintOpen; render(); window.scrollTo(0, y); } },
+  level: a => { if (["auto", "easy", "std"].indexOf(a) < 0) return; if (a === "auto") delete DB.set.level; else DB.set.level = a; dbSave("set"); render(); },
   tMore: () => { if (!A || A.type !== "talk") return; A.more = true; render(); if (DB.set.autoSpeak) speak(A.q, "teacher"); },
   tNext: () => { if (!A || A.type !== "talk" || REC.on) return; const ns = nextStep(); A = null; pendSave(); ACT.start(ns || "retell"); },
   tEnd: () => { A.phase = "end"; render(); window.scrollTo(0, 0); },
@@ -1039,11 +1049,11 @@ const ACT = {
     if (U.lisBusy || REC.on) return;
     if (!needKey()) return;
     if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
-    const topic = LIS_TOPICS[U.lisTopic] ? U.lisTopic : "daily", lv = (tests().slice(-1)[0] || {}).lv || "B1";
+    const topic = LIS_TOPICS[U.lisTopic] ? U.lisTopic : "daily", lv = easyMode() ? "A1-A2" : ((tests().slice(-1)[0] || {}).lv || "B1"), easyLis = easyMode() ? "\nBEGINNER OVERRIDE: write exactly 5 sentences of 4 to 8 words each, using only the most common everyday words, present or simple past tense, no idioms, no contractions harder than I'm / it's / don't. The two questions must be very easy." : "";
     const seen = lisList().slice(0, 8).map(p => p.title).join("; ");
     U.lisBusy = true; U.lisMsg = { text: "선생님이 이야기를 쓰고 있습니다. 20초쯤 걸립니다." }; render();
     const end = m => { U.lisBusy = false; U.lisMsg = m; if (U.tab === "train" && !A) render(); };
-    gCall({ sys: SYS_LISTEN, temp: 0.9, lite: true, parts: [{ text: "MODE: listen\nTOPIC: " + LIS_TOPICS[topic][1] + "\nLEARNER LEVEL (CEFR): " + lv + ". Keep vocabulary at or slightly below this level.\nDo not repeat these earlier titles: " + (seen || "none") }] }, () => {}, r => {
+    gCall({ sys: SYS_LISTEN, temp: 0.9, lite: true, parts: [{ text: "MODE: listen\nTOPIC: " + LIS_TOPICS[topic][1] + "\nLEARNER LEVEL (CEFR): " + lv + ". Keep vocabulary at or slightly below this level." + easyLis + "\nDo not repeat these earlier titles: " + (seen || "none") }] }, () => {}, r => {
       const p = lisClean(r);
       if (p.sents.length < 4) { end({ text: "이야기를 제대로 받지 못했습니다. 한 번 더 눌러 주세요.", err: true }); return; }
       p.id = "L" + newId(); p.t = now(); p.topic = LIS_TOPICS[topic][0]; lisSave(p); U.lisBusy = false; U.lisMsg = null;
@@ -1139,6 +1149,7 @@ const CHG = {
   loopEcho: el => { U.loopEcho = !!el.checked; if (LOOP.on) LOOP.echo = U.loopEcho; },
   loopForever: el => { U.loopForever = !!el.checked; if (LOOP.on) LOOP.forever = U.loopForever; },
   lisTopic: el => { U.lisTopic = el.value; store.set("ec_listopic", U.lisTopic); },
+  rate: el => { const v = +el.value; if (v >= 0.5 && v <= 1.2) DB.set.rate = v; else delete DB.set.rate; dbSave("set"); speakStop(); },
   scene: el => { U.scene = +el.value || 0; render(); },
   remember: el => { U.remember = el.checked; },
   xiVoice: el => { xiSetVoice(el.value); keyTouch("x"); XI.off = 0; U.xiMsg = null; render(); speak("Hello. I am your English coach.", "teacher"); },

@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 37;
+const BUILD = 38;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -42,7 +42,7 @@ function dbLoad() {
   if (isMap(day)) Object.keys(day).forEach(d => { const r = day[d]; if (!isMap(r) || !/^\d+$/.test(d)) return; const st = isMap(r.st) ? r.st : {}; DB.day[d] = { sec: +r.sec || 0, said: +r.said || 0, st: { phr: +st.phr || 0, dr: +st.dr || 0, talk: +st.talk || 0, retell: +st.retell || 0, rev: +st.rev || 0, lis: +st.lis || 0 } }; if (st.revNA) DB.day[d].st.revNA = 1; });
   DB.miss = miss && typeof miss === "object" && !Array.isArray(miss) ? miss : {};
   DB.set = { minutes: 30, autoSpeak: true };
-  if (set && typeof set === "object") { if ([5, 15, 30, 60].indexOf(set.minutes) >= 0) DB.set.minutes = set.minutes; if (set.autoSpeak === false) DB.set.autoSpeak = false; if (set.share === false) DB.set.share = false; if (typeof set.nick === "string") DB.set.nick = set.nick.slice(0, 20); }
+  if (set && typeof set === "object") { if ([5, 15, 30, 60].indexOf(set.minutes) >= 0) DB.set.minutes = set.minutes; if (set.autoSpeak === false) DB.set.autoSpeak = false; if (set.share === false) DB.set.share = false; if (typeof set.nick === "string") DB.set.nick = set.nick.slice(0, 20); if (set.level === "easy" || set.level === "std") DB.set.level = set.level; if (+set.rate >= 0.5 && +set.rate <= 1.2) DB.set.rate = +set.rate; }
   return migrate();
 }
 function dbSave(name) {
@@ -88,7 +88,11 @@ function migrate() {
 }
 
 /* ---------- 하루 기록: 연습 시간, 말한 문장 수, 루틴 단계 ---------- */
-const PLAN = () => D.PLAN[DB.set.minutes] || D.PLAN[30];
+/* 기초 과정: 설정에서 고르거나(easy/std), 고르지 않았으면 최근 레벨 테스트가 B1 아래일 때 자동으로 켠다 */
+function easyMode() { if (DB.set.level === "easy") return true; if (DB.set.level === "std") return false; const t = DB.log.filter(r => r.k === "test" && r.score != null).slice(-1)[0]; return !!t && t.score < 60; }
+/* 읽어 주는 빠르기: 설정에서 고른 값, 없으면 기초 과정은 0.8배 */
+function sayRate() { const r = +DB.set.rate; return r >= 0.5 && r <= 1.2 ? r : (easyMode() ? 0.8 : 1); }
+const PLAN = () => { const P = easyMode() ? D.PLAN_EASY : D.PLAN; return P[DB.set.minutes] || P[30]; };
 function dayRec(d) { d = d == null ? today() : d; return DB.day[d] || (DB.day[d] = { sec: 0, said: 0, st: { phr: 0, dr: 0, talk: 0, retell: 0, rev: 0, lis: 0 } }); }
 const STEPS = ["rev", "phr", "dr", "talk", "retell", "lis"];
 /* 복습·듣기 단계는 이 날부터 루틴에 들어갔다. 그 전 날들의 「루틴 완료」는 예전 네 단계로만 본다. */
@@ -197,11 +201,12 @@ function natList() {                               /* 대화 대답과 레벨 �
     else if (r.k === "test") (r.tasks || []).forEach((t, i) => { if (ok(t.nat)) out.push({ t: r.t - i, name: "레벨 테스트 · " + (TEST_NAME[t.k] || ""), q: "", nat: t.nat, ns: t.ns }); }); });
   return out.sort((x, y) => y.t - x.t);
 }
-function allPhrases() { return DB.my.map(p => ({ id: p.id, c: "my", en: p.en, ko: p.ko || "" })).concat(D.PHRASES); }
+function basicList() { return easyMode() ? D.BASIC : D.BASIC.filter(p => DB.srs[p.id] && DB.srs[p.id].n > 0); }   /* 표준 과정에서는 이미 익히던 기초 구문만 남긴다 */
+function allPhrases() { return DB.my.map(p => ({ id: p.id, c: "my", en: p.en, ko: p.ko || "" })).concat(basicList(), D.PHRASES); }
 function phraseState(id) { const s = DB.srs[id]; if (!s || !s.n) return "new"; return s.b >= 4 ? "known" : "learning"; }
 function newOrder() {                              /* 새 구문 순서: 내가 담은 것 먼저, 그다음 상황별로 하나씩 돌아가며 */
   const cats = Object.keys(D.CATS), by = {}; cats.forEach(c => { by[c] = D.PHRASES.filter(p => p.c === c); });
-  const out = DB.my.map(p => ({ id: p.id, c: "my", en: p.en, ko: p.ko || "" }));
+  const out = DB.my.map(p => ({ id: p.id, c: "my", en: p.en, ko: p.ko || "" })).concat(easyMode() ? D.BASIC : []);   /* 기초 과정은 쉬운 구문 40개를 먼저 */
   for (let i = 0; ; i++) { let any = false; cats.forEach(c => { if (by[c][i]) { out.push(by[c][i]); any = true; } }); if (!any) break; }
   return out;
 }
@@ -443,7 +448,7 @@ function speakDevice(text) {
   try {
     if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) return false;
     window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(String(text).replace(/\s*\/\s*/g, " ")); u.lang = "en-US"; u.rate = 0.95;
+    const u = new SpeechSynthesisUtterance(String(text).replace(/\s*\/\s*/g, " ")); u.lang = "en-US"; u.rate = 0.95 * (LOOP.on ? LOOP.rate : sayRate());
     const vs = window.speechSynthesis.getVoices() || [], v = vs.filter(x => x.lang === "en-US")[0];
     if (v) u.voice = v;
     window.speechSynthesis.speak(u); return true;
@@ -499,6 +504,7 @@ function xiPlay(buf, type) {
       if (!XI.audio) XI.audio = new Audio();
       if (XI.url) URL.revokeObjectURL(XI.url);
       XI.url = URL.createObjectURL(new Blob([buf], { type: type || "audio/mpeg" })); XI.audio.src = XI.url;
+      const rate = LOOP.on ? LOOP.rate : sayRate(); try { XI.audio.defaultPlaybackRate = rate; XI.audio.playbackRate = rate; } catch (e) {}   /* 높낮이는 그대로 두고 빠르기만 바꾼다 */
       const p = XI.audio.play(); if (p && p.then) p.then(() => { XI.open = true; res(true); }, () => res(false)); else { XI.open = true; res(true); }
     } catch (e) { res(false); }
   });
@@ -848,11 +854,23 @@ const TAG_EN = {
   d_filler: "frequent fillers (uh, um, Korean fillers)",
   d_ending: "habitual closing phrase that does not fit (for example ending every answer with 'Thank you')"
 };
+const LEARNER_STD = "A Korean pastor who will serve as a missionary in about two years. His goals, in order: (1) everyday communication on the mission field, (2) sharing his testimony and the gospel naturally, (3) leading worship and preaching in English. Target accent: General American.";
+const LEARNER_EASY = [
+  "A Korean adult who is a real BEGINNER (CEFR A1-A2). Until now the learner has only studied single words and simple greetings. The goal is to enjoy short daily practice and slowly become able to say short everyday sentences. Target accent: General American.",
+  "BEGINNER RULES (these override anything below that conflicts):",
+  "- Everything you say in English must be very easy: sentences of 8 words or fewer, only the most common everyday words, present or simple past tense, no idioms.",
+  "- In a conversation, 'reply' is at most 2 short sentences and ends with ONE easy question (yes/no, or what / where / who / do you like).",
+  "- 'natural' keeps the learner's own idea but in short easy sentences. Do not make it longer or more advanced.",
+  "- Give at most 2 corrections and at most 2 pronunciation notes: only what matters most. Start every piece of feedback with something the learner did well.",
+  "- In drills, ok is true when a listener would understand the sentence. Do not fail a sentence for accent alone.",
+  "- Korean feedback is warm, short and concrete. Never use grammar terms."
+].join("\n");
+const EASY_TALK_EXTRA = '\nFor this beginner ALSO include in the JSON: "reply_ko": string (the Korean meaning of "reply"), "hint": {"en": string, "ko": string} (ONE very easy sentence, 7 words or fewer, the learner could say to answer your new question).';
 const SYS_COMMON = [
   "You are Coach, a warm and honest native speaker of General American English who teaches speaking to ONE Korean learner, lesson after lesson.",
   "",
   "LEARNER",
-  "A Korean pastor who will serve as a missionary in about two years. His goals, in order: (1) everyday communication on the mission field, (2) sharing his testimony and the gospel naturally, (3) leading worship and preaching in English. Target accent: General American.",
+  LEARNER_STD,
   "",
   "HOW YOU LISTEN",
   "- You receive audio recordings. Listen to the audio itself. Judge pronunciation and intonation only from what you actually hear, never from the words alone.",
@@ -991,7 +1009,7 @@ function lisDiff(target, typed) {
 const LIS_KEY = "ec_listen";
 function lisList() { try { const a = JSON.parse(store.get(LIS_KEY) || "[]"); return Array.isArray(a) ? a.filter(x => x && Array.isArray(x.sents) && x.sents.length) : []; } catch (e) { return []; } }
 function lisSave(p) { const a = lisList().filter(x => x.id !== p.id); a.unshift(p); store.set(LIS_KEY, JSON.stringify(a.slice(0, 30))); }
-const sysFor = mode => SYS_COMMON + "\n\n" + SYS_MODE[mode];
+const sysFor = mode => (easyMode() ? SYS_COMMON.replace(LEARNER_STD, LEARNER_EASY) : SYS_COMMON) + "\n\n" + SYS_MODE[mode] + (easyMode() && mode === "talk" ? EASY_TALK_EXTRA : "");
 function profileText() {                           /* 매 요청에 넣는 학습자 정보: 최근 2주 약점, 외우는 구문 */
   const st = tagStats().list.filter(s => s.r > 0 && !s.grad && TAG_EN[s.g]).slice(0, 5), L = [];
   if (st.length) L.push("KNOWN PATTERNS (his most frequent in the last 14 days): " + st.map(s => s.g + " x" + s.r).join(", ") + ".");
@@ -1014,7 +1032,7 @@ function cleanPron(a, n) { return (Array.isArray(a) ? a : []).slice(0, n).map(p 
 function cleanDelivery(a) { return uniq((Array.isArray(a) ? a : []).map(x => String(x)).filter(x => x === "d_filler" || x === "d_ending")); }
 function cleanPairs(a, n) { return (Array.isArray(a) ? a : []).slice(0, n).map(c => ({ en: str(c && c.en, 160), ko: str(c && c.ko, 160) })).filter(c => c.en); }
 function cleanTalk(r) {
-  return { transcript: str(r.transcript, 1500), reply: str(r.reply, 500), praise: str(r.praise_ko, 300), focus: str(r.focus_ko, 300), repeat: str(r.repeat_ko, 300),
+  return { transcript: str(r.transcript, 1500), reply: str(r.reply, 500), replyKo: str(r.reply_ko, 300), hint: (r.hint && str(r.hint.en, 120)) ? { en: str(r.hint.en, 120), ko: str(r.hint.ko, 160) } : null, praise: str(r.praise_ko, 300), focus: str(r.focus_ko, 300), repeat: str(r.repeat_ko, 300),
     pron: cleanPron(r.pronunciation, 4), inton: str(r.intonation_ko, 300), flu: str(r.fluency_ko, 300), gram: cleanGram(r.grammar, 4), natural: str(r.natural, 1500), sents: cleanPairs(r.sents, 12),
     chunks: cleanPairs(r.chunks, 10), order: str(r.order_ko, 300), phrases: cleanPairs(r.phrases, 3), delivery: cleanDelivery(r.delivery_tags), sc: cleanScores(r.scores) };
 }
