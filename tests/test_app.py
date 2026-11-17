@@ -828,6 +828,31 @@ def s24(b):
     ev(pg, "(function(){ DB.log.push({ id: 'tb1', t: now() + 5, k: 'test', score: 66, lv: 'B1', parts: {}, tasks: [] }); dbSave('log'); })()")
     t.check("s24 실력이 올라 B1이 되면 자동으로 표준 과정", ev(pg, "easyMode()") is False)
     for tab in ["home", "train", "weak", "phr", "rec", "set"]: click(pg, "tab", tab)
+    # 기초 과정: 전에 익히던 어려운 구문은 복습에 나오지 않는다
+    ev(pg, "(function(){ gReset(); delete DB.set.level; DB.log = DB.log.filter(r => r.id !== 'tb1'); const d = today(); ['story1','gospel1','sermon1','daily2'].forEach(id => { DB.srs[id] = { b: 1, d: d - 1, n: 1, k: 1, l: d - 2 }; }); window.__ec.A = null; window.__ec.go('phr'); })()")
+    ids = ev(pg, "pickPhrases(8).map(x => x.ref)")
+    t.check("s24 기초 과정 복습에는 간증·복음·설교 구문이 안 나오고 쉬운 것만", ev(pg, "easyMode()") is True and not [x for x in ids if x.startswith(("story", "gospel", "sermon", "worship", "prayer"))] and "daily2" in ids and ev(pg, "dueList().every(p => ['basic','daily','keep','my'].indexOf(p.c) >= 0)"), ids)
+    cats = pg.locator(".ec-cat").all_inner_texts()
+    t.check("s24 구문 화면 단추도 쉬운 갈래만", [c.split()[0] for c in cats][:4] == ["전체", "기초", "일상·생활", "대화"] and not any("설교" in c or "간증" in c for c in cats), cats)
+    # 미리 채점
+    ev(pg, "(function(){ window.__ec.A = null; window.__ec.go('train'); })()"); click(pg, "start", "phr")
+    nb = len(calls(pg, "batch")); n_items = ev(pg, "window.__ec.A.items.length")
+    ev(pg, "(function(){ var A=window.__ec.A; A.clips.push(window.__fakeClip(2)); A.phase='shown'; window.__ec.render(); })()"); click(pg, "bNext")
+    wait_js(pg, "window.__ec.A.part && window.__ec.A.part.length === 1", 15000)
+    t.check("s24 미리 채점: 둘째 문장으로 넘어가면 첫 문장이 뒤에서 채점됨 (화면은 그대로 녹음 대기)", len(calls(pg, "batch")) == nb + 1 and phase(pg) == "ask" and ev(pg, "window.__ec.A.i") == 1 and has(pg, "rec"))
+    for i in range(1, n_items):
+        ev(pg, "(function(){ var A=window.__ec.A; A.clips.push(window.__fakeClip(2)); A.phase='shown'; window.__ec.render(); })()")
+        if i < n_items - 1: click(pg, "bNext"); pg.wait_for_timeout(250)
+    wait_js(pg, "window.__ec.A.part.length === %d && !window.__ec.A.preBusy" % (n_items - 1), 20000)
+    nb2 = len(calls(pg, "batch")); click(pg, "bNext"); wait_phase(pg, "done", 20000)
+    t.check("s24 마지막에 누르면 남은 한 문장만 보내고 끝남, 결과는 문장 수만큼", len(calls(pg, "batch")) == nb2 + 1 and ev(pg, "window.__ec.A.res.length") == n_items and ev(pg, "window.__calls.filter(c => c.mode === 'batch').slice(-1)[0].audio") == 1, (nb, nb2, len(calls(pg, "batch"))))
+    ev(pg, "(function(){ window.__ec.A = null; window.__ec.go('train'); })()"); click(pg, "start", "phr")
+    ev(pg, "window.__mock.plan = ['net','net','net','net','net','net']")
+    ev(pg, "(function(){ var A=window.__ec.A; A.clips.push(window.__fakeClip(2)); A.phase='shown'; window.__ec.render(); })()"); click(pg, "bNext"); wait_js(pg, "!window.__ec.A.preBusy", 40000)
+    t.check("s24 미리 채점이 실패해도 화면은 조용하고 녹음은 그대로", phase(pg) == "ask" and ev(pg, "window.__ec.A.part.length") == 0 and ev(pg, "window.__ec.A.clips.length") == 1 and pg.locator("#ecMain .ec-msg.err").count() == 0)
+    ev(pg, "(function(){ window.__mock.plan = []; gReset(); })()"); click(pg, "bSend"); wait_phase(pg, "done", 30000)
+    t.check("s24 그 뒤 「여기까지만 채점」으로 정상 채점", ev(pg, "window.__ec.A.res.length") == 1)
+    ev(pg, "(function(){ window.__ec.A = null; window.__ec.go('home'); })()")
     # 모르겠으면 정답 듣기 · 첫 글자 힌트
     ev(pg, """(function(){ window.__dev = []; const fake = { speaking: false, cancel(){ this.speaking = false; }, getVoices(){ return []; }, speak(u){ window.__dev.push(u.text); this.speaking = true; setTimeout(() => { this.speaking = false; }, 120); } }; Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: fake }); })()""")
     t.check("s24 첫 글자 힌트 만들기", ev(pg, "hintMask(\"We're thankful for one another.\")") == "W_'__ t_______ f__ o__ a______." and ev(pg, "hintMask('at school')") == "a_ s_____")
@@ -875,7 +900,7 @@ def s14(b):
 
 def s3(b):
     print("\n== s3 하루 루틴 ==")
-    ctx, pg, errs = page(b); set_key(pg); click(pg, "tab", "home")
+    ctx, pg, errs = page(b); set_key(pg); ev(pg, "localStorage.setItem('ec_nopre', '1')"); click(pg, "tab", "home")
     t.check("s3 루틴 시작 단추", "오늘 루틴 시작: ① 구문 복습" in text(pg))
     click(pg, "routine")
     t.check("s3 구문 8개, 모두 새 구문(듣고 따라 말하기)", ev(pg, "window.__ec.A.items.length") == 8 and ev(pg, "window.__ec.A.items.every(x => x.task==='shadow')"))
@@ -1568,7 +1593,7 @@ def s9(b):
 
 def s10(b):
     print("\n== s10 화면이 닫혀도 이어 하기, 학습 시간 ==")
-    ctx, pg, errs = page(b); set_key(pg)
+    ctx, pg, errs = page(b); set_key(pg); ev(pg, "localStorage.setItem('ec_nopre', '1')")
     def reopen():
         pg.wait_for_timeout(350); pg.reload(); pg.wait_for_function("window.__ec"); pg.wait_for_timeout(400)
     warn = lambda: pg.locator("#ecWarn").inner_text()

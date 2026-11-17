@@ -433,25 +433,42 @@ function batchRec() {
   });
 }
 const FOCUS_EN = { d_flat: "flat intonation: stress the key words and move the pitch", d_pause: "too many pauses: say it in one or two breath groups", d_slow: "slow speed: say it smoothly at a natural pace" };
+/* 미리 채점: 녹음을 다 모을 때까지 기다리지 않고, 다음 문장으로 넘어가는 동안 앞 문장을 먼저 채점해 둔다. 마지막에 누르면 거의 바로 결과가 나온다. */
+function batchParts(me, from, k) {
+  const parts = [{ text: "MODE: batch\n" + profileText() + "\nThere are " + k + " items." }];
+  for (let j = 0; j < k; j++) { const it = me.items[from + j];
+    parts.push({ text: "ITEM " + (j + 1) + " | TASK " + it.task + " | TARGET: " + it.en + " | FOCUS: " + (it.focus ? it.focus + " (" + (TAG_EN[it.focus] || FOCUS_EN[it.focus] || "") + ")" : "none") });
+    parts.push({ inlineData: { mimeType: "audio/wav", data: me.clips[from + j].b64 } }); }
+  return parts;
+}
+const preLive = me => !!me.preBusy && Date.now() - (me.preAt || 0) < 60000;
+function batchPre() {
+  const me = A; if (!me || me.type !== "batch" || !G.key || store.get("ec_nopre") === "1" || preLive(me) || me.phase === "sending" || me.phase === "done" || me.phase === "fail") return;
+  if (!Array.isArray(me.part)) me.part = [];
+  const from = me.part.length, k = Math.min(3, Math.min(me.i, me.clips.length) - from); if (k < 1) return;      /* 지금 문장 앞의 녹음만 (다시 녹음할 수 없는 것) */
+  me.preBusy = true; me.preAt = Date.now();
+  const end = () => { me.preBusy = false; };
+  gCall({ sys: sysFor("batch"), parts: batchParts(me, from, k), temp: 0.2, lite: true }, () => {}, (r, model) => {
+    end(); if (A !== me || me.phase === "done" || (me.part || []).length !== from) return;
+    me.part = me.part.concat(cleanBatch(r, k)); me.md = model; pendSave(); if (me.phase !== "sending") batchPre();
+  }, () => { end(); });
+}
 function batchSend() {
   const me = A; me.items = me.items.slice(0, me.clips.length);
   const n = me.items.length; if (!n) return;
+  if (Array.isArray(me.part) && me.part.length > n) me.part = me.part.slice(0, n);       /* 「여기까지만 채점」: 미리 채점해 둔 것 가운데 보낼 만큼만 */
   me.phase = "sending"; me.quitAsk = false; me.failMsg = ""; pendSave(); setMsg(""); render();
   /* 녹음을 세 개씩 나눠 보낸다. 한 번에 보내는 양이 작아야 느린 연결에서도 끊기지 않고, 끊겨도 받은 데까지는 남는다. */
-  if (!Array.isArray(me.part) || me.part.length > n) me.part = [];
+  if (!Array.isArray(me.part)) me.part = [];
   const CH = 3;
   const step = () => {
-    if (A !== me) return;
+    if (A !== me || me.phase !== "sending") return;
+    if (preLive(me)) { setMsg("채점 중 " + me.part.length + " / " + n + "…"); setTimeout(step, 250); return; }   /* 미리 보내 둔 채점이 돌아오기를 기다린다 */
     const from = me.part.length;
     if (from >= n) { finish(); return; }
     const k = Math.min(n, from + CH) - from;
     setMsg("채점 중 " + from + " / " + n + "…");
-    const parts = [{ text: "MODE: batch\n" + profileText() + "\nThere are " + k + " items." }];
-    for (let j = 0; j < k; j++) {
-      const it = me.items[from + j];
-      parts.push({ text: "ITEM " + (j + 1) + " | TASK " + it.task + " | TARGET: " + it.en + " | FOCUS: " + (it.focus ? it.focus + " (" + (TAG_EN[it.focus] || FOCUS_EN[it.focus] || "") + ")" : "none") });
-      parts.push({ inlineData: { mimeType: "audio/wav", data: me.clips[from + j].b64 } });
-    }
+    const parts = batchParts(me, from, k);
     gCall({ sys: sysFor("batch"), parts, temp: 0.2, lite: true }, s => { if (A === me) setMsg(s + " (" + from + " / " + n + ")"); }, (r, model) => {
       if (A !== me || me.phase !== "sending") return;
       me.part = me.part.concat(cleanBatch(r, k)); me.md = model; pendSave(); step();
@@ -777,7 +794,7 @@ function drawOrderDetail(id) {
 /* ---------- 구문 ---------- */
 function drawPhrases() {
   const all = allPhrases(), cnt = { new: 0, learning: 0, known: 0 }; all.forEach(p => { cnt[phraseState(p.id)]++; });
-  const due = dueList().length, cats = [["all", "전체"]].concat(basicList().length ? [["basic", "기초"]] : [], Object.keys(D.CATS).map(c => [c, D.CATS[c]]), [["my", "내 구문"]]);
+  const due = dueList().length, cats = [["all", "전체"]].concat(basicList().length ? [["basic", "기초"]] : [], Object.keys(D.CATS).filter(c => stdList().some(p => p.c === c)).map(c => [c, D.CATS[c]]), [["my", "내 구문"]]);
   let h = card("구문", '<div class="ec-scores">' + statCell("익힘", cnt.known) + statCell("연습 중", cnt.learning) + statCell("새 구문", cnt.new) + '</div><p class="ec-sub">문장을 만들지 말고 덩어리째 꺼내 쓰는 연습입니다. 맞히면 1·3·7·14·30·60일 뒤에 다시 묻고, 네 번 이어 맞히면 「익힘」입니다.</p>' +
     btn(due ? "오늘 복습 시작 (복습할 것 " + due + "개)" : "새 구문 익히기", "start", "phr", "wide"));
   const fx = fixList();
@@ -994,7 +1011,7 @@ const ACT = {
   bHint: () => { if (!A || A.type !== "batch" || REC.on) return; A.items[A.i].hinted = true; pendSave(); render(); },
   bPeek: () => { if (!A || A.type !== "batch" || REC.on) return; const it = A.items[A.i]; it.heard = true; pendSave(); render(); speak(it.en); },
   bRedo: () => { A.clips.length = A.i; A.phase = "ask"; setMsg(""); render(); autoSay(A.items[A.i]); },
-  bNext: () => { if (A.i + 1 >= A.items.length) { batchSend(); return; } A.i++; A.phase = "ask"; setMsg(""); render(); window.scrollTo(0, 0); autoSay(A.items[A.i]); },
+  bNext: () => { if (A.i + 1 >= A.items.length) { batchSend(); return; } A.i++; A.phase = "ask"; setMsg(""); render(); window.scrollTo(0, 0); autoSay(A.items[A.i]); batchPre(); },
   bSend: () => { if (A.clips.length) batchSend(); },
   bWrong: () => { const items = A.items.filter((it, i) => !A.res[i].ok), a = A; A = null; startBatch(a.kind, items, a.title.replace(/ — 틀린 것 다시$/, "") + " — 틀린 것 다시", null); if (A) A.again = true; },
   /* 대화 */

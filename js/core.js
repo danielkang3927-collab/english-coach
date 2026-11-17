@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 39;
+const BUILD = 40;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -206,10 +206,12 @@ function natList() {                               /* 대화 대답과 레벨 �
   return out.sort((x, y) => y.t - x.t);
 }
 function basicList() { return easyMode() ? D.BASIC : D.BASIC.filter(p => DB.srs[p.id] && DB.srs[p.id].n > 0); }   /* 표준 과정에서는 이미 익히던 기초 구문만 남긴다 */
-function allPhrases() { return DB.my.map(p => ({ id: p.id, c: "my", en: p.en, ko: p.ko || "" })).concat(basicList(), D.PHRASES); }
+/* 기초 과정에서는 표준 구문 가운데 쉬운 두 갈래(일상·생활, 대화 이어가기)만 쓴다. 간증·설교 같은 어려운 구문은 전에 익히던 것이 있어도 복습에 나오지 않는다. */
+function stdList() { return easyMode() ? D.PHRASES.filter(p => p.c === "daily" || p.c === "keep") : D.PHRASES; }
+function allPhrases() { return DB.my.map(p => ({ id: p.id, c: "my", en: p.en, ko: p.ko || "" })).concat(basicList(), stdList()); }
 function phraseState(id) { const s = DB.srs[id]; if (!s || !s.n) return "new"; return s.b >= 4 ? "known" : "learning"; }
 function newOrder() {                              /* 새 구문 순서: 내가 담은 것 먼저, 그다음 상황별로 하나씩 돌아가며 */
-  const cats = Object.keys(D.CATS), by = {}; cats.forEach(c => { by[c] = D.PHRASES.filter(p => p.c === c); });
+  const cats = Object.keys(D.CATS), by = {}; cats.forEach(c => { by[c] = stdList().filter(p => p.c === c); });
   const out = DB.my.map(p => ({ id: p.id, c: "my", en: p.en, ko: p.ko || "" })).concat(easyMode() ? D.BASIC : []);   /* 기초 과정은 쉬운 구문 40개를 먼저 */
   for (let i = 0; ; i++) { let any = false; cats.forEach(c => { if (by[c][i]) { out.push(by[c][i]); any = true; } }); if (!any) break; }
   return out;
