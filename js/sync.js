@@ -254,13 +254,15 @@ function syncShared() {
     const R = doc.exists ? (jparse(doc.fields.j && doc.fields.j.stringValue) || {}) : {}, sr = KEY_SRC(), got = [];
     const cur = { g: store.get("ec_gkey") || "", x: store.get("ec_xikey") || "" }, rv = k => String((R[k] && R[k].v) || "");
     const owner = R.o ? R.o === uid : !store.get("ec_sharedeny_" + uid);
-    if (R.o && R.o !== uid) ["g", "x"].forEach(k => {          /* 받는 쪽: 내 키가 없거나, 전에 받아 둔 키면 주인 것에 맞춘다 */
+    /* Gemini 키는 함께 쓰지 않는다(사람마다 자기 키, 자기 계정의 기기끼리만 맞춘다). 전에 받아 쓰던 주인 키는 지운다. */
+    if (sr.g) { if (R.o !== uid) keyApply("g", ""); delete sr.g; got.push("g"); }
+    if (R.o && R.o !== uid) ["x"].forEach(k => {               /* 받는 쪽(성우 목소리 키만): 내 키가 없거나, 전에 받아 둔 키면 주인 것에 맞춘다 */
       if ((!cur[k] || sr[k]) && rv(k) !== cur[k]) { keyApply(k, rv(k), R[k]); if (rv(k)) sr[k] = "shared"; else delete sr[k]; got.push(k); }
       else if (!cur[k] && sr[k]) delete sr[k];
     });
     if (got.length) { store.set("ec_keysrc", JSON.stringify(sr)); if (SYNC.onKeys) SYNC.onKeys(got); }
     if (!owner) return got.length > 0;
-    const out = { o: uid, g: { v: sr.g ? "" : cur.g }, x: { v: sr.x ? "" : cur.x, voice: store.get("ec_xivoice") || "", name: store.get("ec_xiname") || "" } };
+    const out = { o: uid, g: { v: "" }, x: { v: sr.x ? "" : cur.x, voice: store.get("ec_xivoice") || "", name: store.get("ec_xiname") || "" } };
     if (!out.g.v && !out.x.v && !R.o) return false;            /* 올릴 키가 없으면 주인 자리를 만들지 않는다 */
     if (canon(out) === canon(R)) return false;
     return fsPatch(path, { j: { stringValue: JSON.stringify(out) } }, doc.exists ? doc : null).then(() => true, e => { if (/403|PERMISSION|권한/i.test(String(e && (e.status || e.message) || e))) store.set("ec_sharedeny_" + uid, "1"); return false; });

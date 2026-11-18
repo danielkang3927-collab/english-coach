@@ -160,13 +160,24 @@ function weekHtml() {
   h += '<p class="ec-sub">✓는 그날 루틴을 모두 마친 날, 숫자는 연습한 분입니다. 말한 문장 ' + W.said + '개' + (W.prevMin || W.min ? ' · 지난주 같은 요일까지 ' + W.prevMin + '분, 이번 주 ' + W.min + '분 <span class="' + (diff >= 0 ? "s-good" : "s-bad") + '">(' + (diff >= 0 ? "+" : "") + diff + '분)</span>' : "") + '</p>';
   return h;
 }
+const KEY_HOW = '<details class="ec-keyhow"' + '><summary>내 키 받는 법 (무료, 2분) — 눌러서 펼치기</summary>' +
+  '<ol>' +
+  '<li>아래 주소를 누릅니다. 새 창이 열립니다.<br><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></li>' +
+  '<li><b>내 구글 계정</b>으로 로그인합니다. 이 앱에 로그인한 그 계정이면 됩니다. 다른 사람 계정으로 만들면 그 사람과 한도를 나눠 쓰게 됩니다.</li>' +
+  '<li>처음이면 이용 약관 동의 화면이 나옵니다. 읽고 동의합니다.</li>' +
+  '<li><b>「API 키 만들기」</b>(영어 화면은 Create API key)를 누릅니다. 프로젝트를 고르라고 하면 맨 위에 나오는 것을 그대로 고르거나 「새 프로젝트에서 만들기」를 누릅니다.</li>' +
+  '<li>AIza로 시작하는 긴 글자가 나옵니다. 옆의 <b>복사</b> 단추를 누릅니다.</li>' +
+  '<li>이 앱으로 돌아와 아래 「Gemini 이용 키」 칸을 길게 눌러 <b>붙여넣기</b> 합니다.</li>' +
+  '<li><b>「저장하고 모델 확인」</b>을 누릅니다. 「키가 확인됐습니다」가 나오면 끝입니다.</li>' +
+  '</ol>' +
+  '<p class="ec-sub">· 무료입니다. 카드 등록이나 결제 설정은 하지 않아도 됩니다(하라고 나오면 건너뛰세요).<br>· 키는 비밀번호처럼 다뤄 주세요. 카톡이나 다른 사람에게 보내지 마세요.<br>· 한 번 넣으면 내 구글 계정에 저장되어, 내 휴대폰·패드·노트북 어디서 로그인해도 자동으로 채워집니다.<br>· 무료 한도는 하루치입니다. 다 쓰면 다음 날 오후 5시쯤(한국 시간) 다시 열립니다.</p></details>';
 function drawHome() {
   const d = today(), r = dayRec(d), p = PLAN(), goal = DB.set.minutes, min = r.sec / 60, ts = tests(), last = ts[ts.length - 1], prev = ts[ts.length - 2];
   let h = "";
   if (!G.key) h += card("시작하기", '<p>선생님(Gemini)이 녹음을 들으려면 이용 키가 한 번 필요합니다.</p>' + btn("설정 열기", "tab", "set"));
   if (fbReady() && SYNC.ask) h += card("계정 확인이 필요합니다", '<p>이 기기의 기록을 지금 로그인한 계정에 합칠지 정해 주세요.</p>' + btn("설정에서 정하기", "tab", "set"));
   else if (fbReady() && !AUTH.uid) h += card("기기를 바꿔도 기록이 이어지게", '<p class="ec-sub">구글로 로그인하면 휴대폰·아이패드·노트북에서 같은 기록을 씁니다. 기록은 합치기만 하고 지우지 않습니다.</p>' + btn("구글로 로그인", "login"));
-  if (G.key && AUTH.uid && KEY_SRC().g === "shared") h += card("내 무료 키를 넣으면 더 안정적입니다", '<p class="ec-sub">지금은 함께 쓰는 키로 채점하고 있어, 여러 사람이 쓰면 하루 무료 한도가 금방 찹니다. 구글 계정으로 내 키를 만들어 넣으면(무료, 2분) 내 한도를 혼자 씁니다.</p><p class="ec-sub">① 아래 주소에서 구글로 로그인 → 「API 키 만들기」 → 키 복사<br>② 이 앱 「설정」의 Gemini 이용 키 칸에 붙여 넣고 저장</p><p><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></p><div class="ec-row">' + btn("설정 열기", "tab", "set", "small") + '</div>');
+  if (!G.key && AUTH.uid) h += card("내 Gemini 키를 넣어 주세요 (무료, 2분)", '<p class="ec-sub">채점은 각자 자기 구글 계정의 무료 키로 합니다. 한 번 넣으면 내 계정에 저장되어 내 휴대폰·패드·노트북 어디서 로그인해도 자동으로 채워집니다. 다른 사람과는 나누지 않습니다.</p><div class="ec-row">' + btn("설정에서 키 넣기 (받는 법 안내)", "keyHow", null, "") + '</div>');
   if (easyMode()) h += card("기초 과정으로 진행 중", '<p class="ec-sub">쉬운 문장을 천천히, 짧게, 되풀이합니다. 오늘 할 일은 아래 「오늘」의 단계만 차례로 누르면 됩니다. 소리가 빠르면 「설정」에서 더 느리게 바꿀 수 있습니다.</p><p class="ec-sub">익힌 쉬운 구문 <b>' + D.BASIC.filter(p => phraseState(p.id) === "known").length + '</b> / ' + D.BASIC.length + ' · 연습 중 ' + D.BASIC.filter(p => phraseState(p.id) === "learning").length + '</p>');
   h += card("나의 학습 현황", weekHtml());
   /* 등급과 목표 */
@@ -948,7 +959,7 @@ function drawSyncCard() {
 }
 function drawSettings() {
   const order = gOrder();
-  let g = '<p class="ec-sub">선생님 역할을 하는 구글 Gemini의 이용 키입니다. 기록·백업 파일에는 들어가지 않습니다. 구글로 로그인하면 본인만 읽을 수 있는 계정 저장소에 함께 두어, 다른 기기에서도 자동으로 채워집니다. 키는 aistudio.google.com 의 「Get API key」에서 무료로 만듭니다.</p>' +
+  let g = '<p class="ec-sub">선생님 역할을 하는 구글 Gemini의 이용 키입니다. 기록·백업 파일에는 들어가지 않습니다. <b>사람마다 자기 키를 넣습니다.</b> 구글로 로그인하면 본인만 읽을 수 있는 계정 저장소에 두어, 내 다른 기기에서도 자동으로 채워집니다. 다른 사람과는 나누지 않습니다.</p>' + KEY_HOW.replace('class="ec-keyhow"', 'class="ec-keyhow"' + (G.key && !U.keyHow ? "" : " open")) +
     '<label for="ecGKey">Gemini 이용 키</label><input type="password" id="ecGKey" data-bind="gkey" value="' + esc(U.f.gkey) + '" autocomplete="off" placeholder="AIza…">' +
     '<label class="ec-check"><input type="checkbox" id="ecGRemember" data-chg="remember"' + (U.remember ? " checked" : "") + '> 이 기기에 키 기억하기</label>' +
     '<div class="ec-row">' + btn("저장하고 모델 확인", "gSave") + btn("키 지우기", "gClear", null, "ghost") + '</div>' + msgBox(U.gmsg);
@@ -1100,6 +1111,7 @@ const ACT = {
     logAdd({ k: "listen", title: A.p.title, topic: A.topic, n: A.p.sents.length, dn: dn, dk: dk, qn: lisQdone(), qk: lisQok(), heard: A.heard, tx: A.p.sents.map(x => x.en).join(" ").slice(0, 900) });
     [0, 1, 2].forEach(k => { U.f["dict" + k] = ""; }); { const dy = dayRec(); dy.st.lis = (dy.st.lis || 0) + 1; daySave(); }
     const qn0 = lisQdone(), qk0 = lisQok(); if (A.mission) missDone(A.mission, (qn0 ? "질문 " + qk0 + " / " + qn0 : "들음") + (dn ? " · 받아쓰기 " + dk + " / " + dn : "")); A = null; pendSave(); U.lisMsg = { text: "듣기를 마쳤습니다." + (qn0 ? " 질문 " + qk0 + " / " + qn0 + "." : "") + (dn ? " 받아쓰기에서 낱말 " + dk + " / " + dn + "개를 들었습니다." : "") + " 며칠 뒤 「이어 듣기」에서 다시 들어 보세요." }; go("train"); },
+  keyHow: () => { U.keyHow = true; go("set"); setTimeout(() => { const el = $("ecGKey"); if (el && el.scrollIntoView) el.scrollIntoView({ block: "center" }); }, 80); },
   yestGo: () => { if (REC.on) return; const it = pickYest(3); if (!it.length) { U.shortMsg = { text: "구문을 한 번 익히면 다음 날부터 여기에 복습 문제가 나옵니다." }; render(); return; }
     if (A && hasWork(A)) { A.quitAsk = false; go("train"); setMsg("진행 중인 훈련이 있습니다. 먼저 마치거나 「← 목록」으로 끝내 주세요.", true); return; }
     A = null; U.tagSel = null; U.ordSel = null; U.shortMsg = null; startBatch("phr", it, "지난 문장 복습", "rev"); if (A) A.again = true; },

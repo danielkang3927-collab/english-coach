@@ -291,7 +291,7 @@ def s2(b):
     t.check("s2 끝까지 오류 없음", not errs, errs); ctx.close()
 
 def s15(b):
-    print("\n== s15 함께 쓰는 키: 다른 사람이 로그인해도 채워짐 ==")
+    print("\n== s15 키: Gemini는 사람마다 자기 키, 성우 목소리 키만 함께 ==")
     fake = FakeGoogle(); SK = "shared/keys"
     done = "window.__ec && window.__ec.AUTH.uid && !window.__ec.SYNC.busy && window.__ec.SYNC.last > 0"
     def sh(): d = fake.docs.get(SK); return json.loads(d["fields"]["j"]["stringValue"]) if d else None
@@ -299,29 +299,32 @@ def s15(b):
     O, po, eo = page(b, init=FB_INIT, fake=fake); set_key(po, "AIzaOWNERKEY111")
     click(po, "tab", "set"); po.fill("#ecXiKey", "sk_test_elevenlabs_key_0001"); click(po, "xiSave"); wait_js(po, "XI.key && XI.voice")
     click(po, "login"); wait_js(po, done)
-    t.check("s15 주인이 로그인하면 함께 쓰는 키 자리에 올라감", sh() and sh()["o"] == "U1001" and sh()["g"]["v"] == "AIzaOWNERKEY111" and sh()["x"]["v"] == "sk_test_elevenlabs_key_0001" and sh()["x"]["voice"] == "vM1", sh())
+    t.check("s15 주인이 로그인해도 Gemini 키는 함께 쓰는 자리에 올라가지 않음 (성우 키만)", sh() and sh()["o"] == "U1001" and sh()["g"]["v"] == "" and sh()["x"]["v"] == "sk_test_elevenlabs_key_0001" and "AIzaOWNER" not in json.dumps(sh()), sh())
+    t.check("s15 주인의 Gemini 키는 자기 계정 자리에 저장됨", "AIzaOWNERKEY111" in json.dumps(fake.docs.get("users/U1001/state/keys")))
+    # 예전 판이 올려 둔 주인 Gemini 키가 남아 있어도 받지 않는다
+    d = fake.docs[SK]; j = json.loads(d["fields"]["j"]["stringValue"]); j["g"] = {"v": "AIzaOLDSHARED000"}; d["fields"]["j"]["stringValue"] = json.dumps(j)
     fake.account = {"sub": "2002", "email": "friend@example.com", "name": "다른 사람"}
-    F, pf, ef = page(b, init=FB_INIT, fake=fake); click(pf, "tab", "set"); click(pf, "login"); wait_js(pf, done); wait_js(pf, "XI.pool.length === 3")
-    click(pf, "tab", "home"); click(pf, "tab", "set")
-    t.check("s15 다른 사람이 로그인하면 두 키가 자동으로 채워짐", ev(pf, "AUTH.uid") == "U2002" and ev(pf, "G.key") == "AIzaOWNERKEY111" and ev(pf, "XI.key") == "sk_test_elevenlabs_key_0001" and ev(pf, "XI.voice") == "vM1" and "시작하기" not in text(pf) and pf.locator("#ecXiKey").count() == 0)
-    fk = fake.docs.get("users/U2002/state/keys")
-    click(pf, "tab", "home"); t.check("s15 함께 쓰는 키로 쓰는 사람에게 내 무료 키 안내, 주인에게는 없음", "내 무료 키를 넣으면" in text(pf) and "aistudio.google.com/apikey" in text(pf) and "내 무료 키를 넣으면" not in (click(po, "tab", "home") or text(po)))
-    click(pf, "tab", "set")
-    t.check("s15 받은 키는 그 사람의 계정 자리에 다시 올리지 않고, 함께 쓰는 자리도 그대로", (fk is None or "AIzaOWNER" not in json.dumps(fk)) and sh()["o"] == "U1001" and ev(pf, "localStorage.getItem('ec_keysrc')") == '{"g":"shared","x":"shared"}', fk)
-    pf.reload(); pf.wait_for_function("window.__ec")
-    t.check("s15 다시 열어도 그대로", ev(pf, "G.key") == "AIzaOWNERKEY111" and ev(pf, "xiOn()"))
+    F, pf, ef = page(b, init=FB_INIT, fake=fake); click(pf, "gateSkip") if has(pf, "gateSkip") else None
+    ev(pf, "(function(){ localStorage.setItem('ec_gkey', 'AIzaOLDSHARED000'); G.key = 'AIzaOLDSHARED000'; localStorage.setItem('ec_keysrc', JSON.stringify({ g: 'shared' })); })()")   # 예전에 받아 쓰던 상태
+    click(pf, "tab", "set"); click(pf, "login"); wait_js(pf, done); wait_js(pf, "XI.pool.length === 3")
+    t.check("s15 다른 사람: 받아 쓰던 주인 Gemini 키는 지워지고 다시 채워지지 않음, 성우 키는 받음", ev(pf, "AUTH.uid") == "U2002" and ev(pf, "G.key") == "" and ev(pf, "localStorage.getItem('ec_gkey')") is None and ev(pf, "XI.key") == "sk_test_elevenlabs_key_0001" and ev(pf, "localStorage.getItem('ec_keysrc')") == '{"x":"shared"}')
+    sync(pf); sync(pf); t.check("s15 다시 맞춰도 주인 키가 되살아나지 않음", ev(pf, "G.key") == "")
+    click(pf, "tab", "home")
+    t.check("s15 키가 없는 사람의 홈에 내 키 안내", "내 Gemini 키를 넣어 주세요" in text(pf) and has(pf, "keyHow"))
+    click(pf, "keyHow")
+    t.check("s15 안내 단추 → 설정의 키 칸과 펼쳐진 받는 법 일곱 단계", ev(pf, "window.__ec.U.tab") == "set" and pf.locator(".ec-keyhow[open] ol li").count() == 7 and "aistudio.google.com/apikey" in text(pf) and "API 키 만들기" in text(pf) and "결제" in text(pf) and pf.locator("#ecGKey").count() == 1)
+    pf.fill("#ecGKey", "AIzaFRIENDOWN999"); click(pf, "gSave"); pf.wait_for_function("document.querySelector('#ecMain').innerText.indexOf('키가 확인됐습니다') >= 0"); sync(pf); sync(po)
+    t.check("s15 자기 키를 넣으면 자기 계정에만 저장되고 주인에게 가지 않음", ev(pf, "G.key") == "AIzaFRIENDOWN999" and "AIzaFRIENDOWN999" in json.dumps(fake.docs.get("users/U2002/state/keys")) and "FRIEND" not in json.dumps(sh()) and ev(po, "G.key") == "AIzaOWNERKEY111")
+    F2, p2, e2 = page(b, init=FB_INIT, fake=fake); click(p2, "tab", "set") if not has(p2, "login") else None; click(p2, "login"); wait_js(p2, done)
+    t.check("s15 같은 계정의 다른 기기(빈 기기)에는 자기 키가 자동으로 채워짐", ev(p2, "AUTH.uid") == "U2002" and ev(p2, "G.key") == "AIzaFRIENDOWN999")
+    click(p2, "tab", "set"); click(p2, "gClear"); sync(p2); sync(pf); sync(p2)
+    t.check("s15 키를 지우면 지워진 채로 있고(되살아나지 않음) 내 다른 기기에서도 빠짐", ev(p2, "G.key") == "" and ev(pf, "G.key") == "", (ev(p2, "G.key"), ev(pf, "G.key")))
     fake.account = {"sub": "1001", "email": "pastor@example.com", "name": "강동윤"}
-    po.wait_for_timeout(30); click(po, "tab", "set"); po.fill("#ecGKey", "AIzaOWNERKEY222"); click(po, "gSave"); po.wait_for_function("document.querySelector('#ecMain').innerText.indexOf('키가 확인됐습니다') >= 0"); sync(po); sync(pf)
-    t.check("s15 주인이 키를 바꾸면 다른 사람도 새 키로", sh()["g"]["v"] == "AIzaOWNERKEY222" and ev(pf, "G.key") == "AIzaOWNERKEY222")
-    click(pf, "tab", "set"); pf.fill("#ecGKey", "AIzaFRIENDOWN999"); click(pf, "gSave"); pf.wait_for_function("document.querySelector('#ecMain').innerText.indexOf('키가 확인됐습니다') >= 0"); sync(pf); sync(po)
-    t.check("s15 자기 키를 넣은 사람은 자기 키를 쓰고, 주인 키는 바뀌지 않음", ev(pf, "G.key") == "AIzaFRIENDOWN999" and sh()["g"]["v"] == "AIzaOWNERKEY222" and ev(po, "G.key") == "AIzaOWNERKEY222" and ev(pf, "XI.key") == "sk_test_elevenlabs_key_0001")
+    sync(po); t.check("s15 주인이 한 번 맞추면 예전에 올려 둔 Gemini 키가 함께 쓰는 자리에서 지워짐", sh()["g"]["v"] == "" and "AIzaOLD" not in json.dumps(sh()) and ev(po, "G.key") == "AIzaOWNERKEY111")
     po.wait_for_timeout(30); click(po, "tab", "set"); click(po, "xiDel"); sync(po); sync(pf)
-    t.check("s15 주인이 지운 키는 받아 쓰던 사람에게서도 빠짐 (자기 키는 그대로)", sh()["x"]["v"] == "" and ev(pf, "XI.key") == "" and ev(pf, "G.key") == "AIzaFRIENDOWN999")
-    fake.account = {"sub": "3003", "email": "third@example.com", "name": "셋째"}
-    T3, pt, et = page(b, init=FB_INIT, fake=fake); set_key(pt, "AIzaTHIRDOWN333"); click(pt, "tab", "set"); click(pt, "login"); wait_js(pt, done)
-    t.check("s15 자기 키를 가진 다른 사람이 로그인해도 함께 쓰는 키를 덮어쓰지 못함", sh()["o"] == "U1001" and sh()["g"]["v"] == "AIzaOWNERKEY222" and ev(pt, "G.key") == "AIzaTHIRDOWN333")
-    t.check("s15 처리기·오류 없음", handlers_ok(po) == [] and handlers_ok(pf) == [] and not real(eo) and not real(ef) and not real(et), [real(eo), real(ef), real(et)])
-    O.close(); F.close(); T3.close()
+    t.check("s15 주인이 지운 성우 키는 받아 쓰던 사람에게서도 빠짐", sh()["x"]["v"] == "" and ev(pf, "XI.key") == "")
+    t.check("s15 처리기·오류 없음", handlers_ok(po) == [] and handlers_ok(pf) == [] and not real(eo) and not real(ef) and not real(e2), [real(eo), real(ef), real(e2)])
+    O.close(); F.close(); F2.close()
 
 def s16(b):
     print("\n== s16 새 판 자동 적용, 듣기, 늦은 모델 ==")
