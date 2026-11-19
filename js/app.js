@@ -3,10 +3,12 @@
 const U = { tab: "home", scene: 0, f: { script: "", phEn: "", phKo: "", askEn: "", bk: "", gkey: "" }, remember: true, tagSel: null, ordSel: null, showZero: false,
   phCat: "all", logN: 20, logOpen: null, note: null, gmsg: null, bkMsg: null, phMsg: null, repMsg: null, copy: null, delAsk: null, talkN: 0, flash: null, smsg: null, diag: null, back: null, ask: null, mic: "", missMsg: null, lisMission: null, lisTopic: store.get("ec_listopic") || "faith", lisBusy: false, lisMsg: null, lisOld: false, nickMsg: null, loopSrc: "cum", loopRate: +store.get("ec_looprate") || 1, loopEcho: true, loopForever: true, loopMsg: null, shortMsg: null, natOpen: false, natN: 5, natMsg: null, natBusy: null };
 let A = null;                                     /* 진행 중인 훈련 */
-let SAY = [], KEEP = [];                                     /* 「듣기」 버튼이 읽을 글 */
+let SAY = [], KEEP = [], MINE = [];                                     /* 「듣기」 버튼이 읽을 글 */
 const REC = { on: false, busy: false, t0: 0, timer: null, max: 0, done: null };
 
 /* ---------- 작은 조각 ---------- */
+/* 내 녹음 듣기 단추: 녹음이 있을 때만. en을 주면 「내 소리 → 바른 소리」 번갈아 듣기 단추도 함께 */
+const mineBtns = (b64, en, cmpLabel) => { if (!b64) return ""; MINE.push({ b: b64, en: en || "" }); const k = MINE.length - 1; return '<span class="ec-minebox"><button class="ec-mini" data-act="mine" data-arg="' + k + '">내 녹음 듣기</button>' + (en ? '<button class="ec-mini" data-act="mineCmp" data-arg="' + k + '">' + (cmpLabel || "내 소리 → 바른 소리") + '</button>' : "") + '</span>'; };
 const say = (text, label, role) => { SAY.push(role ? { t: text, role: role } : text); return '<button class="ec-mini" data-act="say" data-arg="' + (SAY.length - 1) + '">' + (label || "듣기") + '</button>'; };
 const btn = (label, act, arg, cls) => '<button class="ec-btn ' + (cls || "") + '" data-act="' + act + '"' + (arg != null ? ' data-arg="' + esc(arg) + '"' : "") + '>' + label + '</button>';
 const sCls = n => n == null ? "" : (n >= 80 ? "s-good" : (n >= 60 ? "s-mid" : "s-bad"));
@@ -40,7 +42,7 @@ function drawGate() {
     '<p class="ec-sub">로그인하지 않으면 기록이 이 기기에만 남습니다. 나중에 「설정」에서 로그인할 수 있습니다.</p>' + btn("로그인 없이 시작", "gateSkip", null, "ghost small") + '</div>';
 }
 function render() {
-  SAY = []; KEEP = [];
+  SAY = []; KEEP = []; MINE = [];
   if (A && U.tab === "train" && !document.hidden && A.phase !== "sending" && store.get("ec_unseen")) store.del("ec_unseen");
   let h;
   const gate = gateOn();
@@ -428,7 +430,7 @@ function drawBatch() {
   if (shown) {
     const c = A.clips[A.i];
     const hid = it.task === "recall" || it.task === "translate";     /* 스스로 떠올려 말하는 문제는 채점 전에 정답을 보여 주지 않는다 */
-    h += '<div class="ec-kv">내 녹음 ' + c.m.speech.toFixed(1) + '초' + (c.m.st != null ? ' · 높낮이 폭 ' + c.m.st.toFixed(1) + '반음' : "") + (hid ? ' — 정답은 채점한 뒤에 보여 드립니다.' : ' — 들은 소리와 스스로 비교해 보세요.') + '</div>';
+    h += '<div class="ec-kv">내 녹음 ' + c.m.speech.toFixed(1) + '초' + (c.m.st != null ? ' · 높낮이 폭 ' + c.m.st.toFixed(1) + '반음' : "") + (hid ? ' — 정답은 채점한 뒤에 보여 드립니다.' : ' — 내 녹음을 듣고 바른 소리와 비교해 보세요.') + '</div>' + '<div class="ec-row">' + mineBtns(c.b64, hid ? "" : it.en) + '</div>';
     h += '<div class="ec-row">' + btn("다시 녹음", "bRedo", null, "ghost") + btn(A.i + 1 < n ? "다음 →" : "채점 보내기", "bNext") + '</div>';
   } else h += recBtn();
   h += noteHtml();
@@ -518,7 +520,7 @@ function drawBatchDone() {
     return '<div class="ec-res ' + (x.ok ? "ok" : "no") + '"><div class="ec-res-h"><b>' + (x.ok ? "✓" : "✗") + '</b> ' + esc(it.en) + ' ' + say(it.en) + '</div>' +
       (it.task !== "read" && it.ko ? '<div class="ec-sub">' + esc(it.ko) + '</div>' : "") +
       (fixWas(it.ref) != null && String(it.ko || "").indexOf(FIX_MARK) !== 0 ? '<div class="ec-sub">전에는 「' + esc(fixWas(it.ref)) + '」라고 했어요.</div>' : "") +
-      (x.heard ? '<div class="ec-kv">들린 말: ' + esc(x.heard) + '</div>' : "") + (x.note ? '<div class="ec-tip">' + esc(x.note) + '</div>' : "") +
+      (x.heard ? '<div class="ec-kv">들린 말: ' + esc(x.heard) + '</div>' : "") + (A.clips[i] ? '<div class="ec-row">' + mineBtns(A.clips[i].b64, it.en) + '</div>' : "") + (x.note ? '<div class="ec-tip">' + esc(x.note) + '</div>' : "") +
       '<div class="ec-row">' + (x.ok ? "" : tagChip(x.tag)) + (s ? '<span class="ec-sub">다음 복습: ' + dueText(s) + '</span>' : "") + '</div></div>';
   }).join("");
   h += '<div class="ec-row">' + (wrong ? btn("틀린 것만 다시 (" + wrong + "개)", "bWrong", null, "ghost") : "") + nextBtn() + '</div>';
@@ -563,7 +565,7 @@ function talkSend() {
     const rec = logAdd({ k: "talk", sc: sc.id, q: me.q.slice(0, 240), tx: c.transcript.slice(0, 900), nat: c.natural.slice(0, 900), ns: c.sents.map(x => ({ en: x.en, ko: x.ko })), ch: c.chunks, s: [c.sc.pron, c.sc.inton, c.sc.flu, c.sc.gram], m: mPack(p.m, words), tags,
       fx: c.gram.map(g => fxOf(g)), pr: c.pron.map(x => ({ w: x.word, g: x.tag })), md: model });
     const day = dayRec(); day.st.talk++; day.said += sentences(c.transcript); daySave();
-    me.turns.push({ q: me.q, r: c, m: p.m, words, tags, id: rec.id, model, open: false });
+    me.turns.push({ q: me.q, r: c, m: p.m, words, tags, id: rec.id, model, open: false, b64: p.b64 });
     me.q = c.reply || "Thank you. Please tell me more."; me.qKo = c.replyKo || ""; me.hint = c.hint || null; me.hintOpen = false; me.pend = null; me.phase = "idle";
     if (!me.more && stepDone("talk")) me.goal = true;            /* 오늘 정한 횟수를 채우면 여기서 끝낸다 */
     if (me.mission && !me.missed) { me.missed = true; me.goal = true; me.more = false; missDone(me.mission, "발음 " + r0(c.sc.pron) + " · 문법 " + r0(c.sc.gram) + " · " + words + "단어"); }
@@ -574,6 +576,7 @@ function turnOpen(t, i, last) {
   const r = t.r, m = t.m, wpm = wpmOf(m, t.words), ppm = ppmOf(m), dev = t.tags.filter(g => DEVICE_TAGS[g] || g === "d_filler" || g === "d_ending");
   let h = '<div class="ec-turn"' + (last ? ' id="ecLast"' : "") + '><div class="ec-row between"><small class="ec-sub">' + (i + 1) + '번째 대답 · ' + esc(short(t.q, 48)) + '</small>' + (last ? "" : btn("접기", "tFold", i, "ghost small")) + '</div>';
   h += '<div class="ec-said">' + esc(r.transcript) + '</div>';
+  if (t.b64) h += '<div class="ec-row">' + mineBtns(t.b64, r.natural || "", "내 대답 → 모범답안") + '</div>';
   h += '<div class="ec-scores">' + scoreCell("발음", r.sc.pron) + scoreCell("억양", r.sc.inton) + scoreCell("유창성", r.sc.flu) + scoreCell("문법", r.sc.gram) + '</div>';
   h += '<div class="ec-kv">기기 측정 — 속도 ' + (wpm ? Math.round(wpm) + "단어/분" : "–") + ' · 멈춤 ' + m.pauses + '번' + (ppm != null ? " (분당 " + ppm.toFixed(0) + ")" : "") + ' · 높낮이 폭 ' + (m.st != null ? m.st.toFixed(1) + "반음 (" + pitchLabel(m.st) + ")" : "측정 안 됨") + '</div>';
   if (dev.length) h += '<div class="ec-row">' + dev.map(tagChip).join("") + '</div>';
@@ -998,6 +1001,8 @@ const ACT = {
   xiPre: () => { if (!XI.key || !XI.voice) return; XI.off = 0; store.del("ec_xioff"); ttsPrefetch(() => { if (U.tab === "set") render(); }); render(); },
   xiPreStop: () => { if (XI.pre) XI.pre.stop = true; },
   xiDel: () => { speakStop(); xiClear(); keyTouch("x"); U.xiMsg = { text: "ElevenLabs 키를 지웠습니다. 기기 목소리로 읽습니다." }; render(); },
+  mine: a => { const m = MINE[+a]; if (m) playMine(m.b); },
+  mineCmp: a => { const m = MINE[+a]; if (m) playMine(m.b, m.en); },
   say: a => { const t = SAY[+a]; if (t && t.t) speak(t.t, t.role); else if (t) speak(t); },
   voice: () => { if (!speak("Hello. I am your English coach. Let's practice together.", "teacher")) { U.gmsg = { text: "이 브라우저는 읽어 주기를 지원하지 않습니다.", err: true }; render(); } },
   routine: () => { const ns = nextStep(); ACT.start(ns || "talk"); },

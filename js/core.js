@@ -1,6 +1,6 @@
 "use strict";
 /* 영어 말하기 코치 — 기록, 간격 반복, 녹음·측정, Gemini 연결, 선생님 지시문. 화면은 app.js, 구글 저장은 sync.js. */
-const BUILD = 42;
+const BUILD = 43;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -528,16 +528,29 @@ function xiClear() { XI.key = ""; XI.voice = ""; XI.name = ""; XI.voices = []; X
 /* 소리가 나는 중에는 절대 건드리지 않는다. (화면을 만질 때마다 무음을 다시 틀어 듣던 소리가 끊기던 원인) */
 function xiBusyNow() { try { return !!(XI.audio && !XI.audio.paused && !XI.audio.ended && XI.audio.src && XI.audio.src.indexOf("blob:") === 0); } catch (e) { return false; } }
 function xiUnlock() { if (XI.open || !XI.key || xiBusyNow()) return; try { if (!XI.audio) XI.audio = new Audio(); XI.audio.src = XI_SILENT; const p = XI.audio.play(); if (p && p.then) p.then(() => { XI.open = true; }, () => {}); } catch (e) {} }
-function xiPlay(buf, type) {
+function xiPlay(buf, type, rate0) {
   return new Promise(res => {
     try {
       if (!XI.audio) XI.audio = new Audio();
       if (XI.url) URL.revokeObjectURL(XI.url);
       XI.url = URL.createObjectURL(new Blob([buf], { type: type || "audio/mpeg" })); XI.audio.src = XI.url;
-      const rate = LOOP.on ? LOOP.rate : sayRate(); try { XI.audio.defaultPlaybackRate = rate; XI.audio.playbackRate = rate; } catch (e) {}   /* 높낮이는 그대로 두고 빠르기만 바꾼다 */
+      const rate = rate0 || (LOOP.on ? LOOP.rate : sayRate()); try { XI.audio.defaultPlaybackRate = rate; XI.audio.playbackRate = rate; } catch (e) {}   /* 높낮이는 그대로 두고 빠르기만 바꾼다 */
       const p = XI.audio.play(); if (p && p.then) p.then(() => { XI.open = true; res(true); }, () => res(false)); else { XI.open = true; res(true); }
     } catch (e) { res(false); }
   });
+}
+/* 내 녹음 다시 듣기: 녹음한 그대로(빠르기 1배) 튼다. then이 있으면 끝난 뒤 바른 소리를 이어서 들려준다(번갈아 듣기). */
+function playMine(b64, then) {
+  if (!b64) return false;
+  if (LOOP.on) loopStop();
+  try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
+  const my = ++XI.seq;
+  let buf; try { const bin = atob(b64), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); buf = u8.buffer; } catch (e) { return false; }
+  if (!XI.audio) try { XI.audio = new Audio(); } catch (e) { return false; }
+  const fin = () => { try { XI.audio.removeEventListener("ended", fin); } catch (e) {} if (my !== XI.seq) return; try { XI.audio.playbackRate = 1; } catch (e) {} if (then) setTimeout(() => { if (my === XI.seq) speak(then); }, 350); };
+  try { XI.audio.addEventListener("ended", fin); } catch (e) {}
+  xiPlay(buf, "audio/wav", 1).then(ok => { if (!ok) { try { XI.audio.removeEventListener("ended", fin); } catch (e) {} } });
+  return true;
 }
 const ttsHash = t => { let h = 7; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0; return h; };
 /* 선생님(대화)은 늘 같은 목소리, 나머지 문장은 여러 목소리. 같은 문장은 늘 같은 목소리라 저장해 둔 것을 다시 쓴다. */
