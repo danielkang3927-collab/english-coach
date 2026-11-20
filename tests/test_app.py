@@ -342,6 +342,26 @@ def s16(b):
     t.check("s16 끝나면 새 판 주소로 저절로 다시 엶 (키·기록 그대로)", ("v=%d" % (cur + 5)) in pg.url and ev(pg, "G.key") != "")
     ev(pg, "(function(){ UPD.last = 0; })()"); ev(pg, "updCheck()"); pg.wait_for_timeout(600)
     t.check("s16 같은 판으로 되풀이해 다시 열지 않음", ev(pg, "typeof BUILD") == "number" and ev(pg, "sessionStorage.getItem('ec_upd')") == str(cur + 5))
+    ev(pg, "sessionStorage.setItem('ec_upd', String(BUILD)); sessionStorage.removeItem('ec_updshown')"); pg.reload(); pg.wait_for_function("window.__ec")   # 실제로는 새 판의 BUILD가 ec_upd와 같다
+    pg.wait_for_function("document.getElementById('ecToast') && document.getElementById('ecToast').classList.contains('on')", timeout=4000)
+    t.check("s16 바꾼 뒤 맨 위에 「새 버전으로 바꿨습니다」 알림", "새 버전으로 바꿨습니다" in ev(pg, "document.getElementById('ecToast').innerText"))
+    pg.reload(); pg.wait_for_function("window.__ec"); pg.wait_for_timeout(1300)
+    t.check("s16 그 알림은 한 번만", not ev(pg, "!!(document.getElementById('ecToast') && document.getElementById('ecToast').classList.contains('on'))"))
+    # 결과 화면을 보고 있으면 그대로 두고 알림 띠, 다른 화면으로 가면 그때 바뀜
+    pg.unroute("**/version.json*"); pg.route("**/version.json*", lambda r: r.fulfill(status=200, content_type="application/json", body='{"build": %d}' % (cur + 6)))
+    ev(pg, "(function(){ window.__ec.A = {type:'batch', kind:'dr', title:'x', items:[], clips:[], i:0, phase:'done', res:[]}; window.__ec.U.tab = 'train'; UPD.last = 0; })()"); ev(pg, "updCheck()"); pg.wait_for_timeout(600)
+    t.check("s16 결과를 보는 중에는 바꾸지 않고 「새 버전이 나왔습니다 · 지금 바꾸기」 띠", ("v=%d" % (cur + 6)) not in pg.url and "새 버전이 나왔습니다" in ev(pg, "document.getElementById('ecWarn').innerText") and pg.locator('#ecWarn [data-act="updNow"]').count() == 1)
+    ev(pg, "go('home')"); pg.wait_for_url("**v=%d" % (cur + 6), timeout=8000)
+    pg.wait_for_function("window.__ec")
+    t.check("s16 결과를 보고 다른 화면으로 가면 저절로 새 판", ("v=%d" % (cur + 6)) in pg.url, pg.url)
+    pg.unroute("**/version.json*"); pg.route("**/version.json*", lambda r: r.fulfill(status=200, content_type="application/json", body='{"build": %d}' % (cur + 7)))
+    ev(pg, "(function(){ window.__ec.A = {type:'talk', title:'x', scene:0, turns:[{q:'a'}], q:'b', phase:'idle', pend:null}; window.__ec.U.tab = 'home'; UPD.last = 0; })()"); ev(pg, "updCheck()"); pg.wait_for_timeout(600)
+    t.check("s16 이어 가는 대화 중에는 바꾸지 않고, 띠에 「지금 바꾸기」도 없음", ("v=%d" % (cur + 7)) not in pg.url and "녹음·채점이 끝나면 저절로" in ev(pg, "document.getElementById('ecWarn').innerText") and pg.locator('#ecWarn [data-act="updNow"]').count() == 0)
+    ev(pg, "(function(){ window.__ec.A = {type:'batch', kind:'dr', title:'x', items:[{task:'read',en:'Hi.',ko:'안녕'},{task:'read',en:'Bye.',ko:'잘가'}], clips:[window.__fakeClip(1)], i:1, phase:'ask', res:null}; window.__ec.render(); })()")
+    t.check("s16 녹음을 모으는 중이면 「지금 바꾸기」 단추가 보임", pg.locator('#ecWarn [data-act="updNow"]').count() == 1)
+    with pg.expect_navigation(): pg.click('#ecWarn [data-act="updNow"]')
+    pg.wait_for_function("window.__ec"); pg.wait_for_timeout(800)
+    t.check("s16 「지금 바꾸기」: 새 판으로 열리고 모아 둔 녹음은 되살아남", ("v=%d" % (cur + 7)) in pg.url and ev(pg, "!!window.__ec.A && window.__ec.A.clips.length") == 1)
     pg.unroute("**/version.json*")
     # 늦은 모델: 기다리지 않고 다음 모델에도 함께 보냄
     r = ev(pg, "new Promise(res => { gReset(); G.hedgeMs = 300; window.__mock.plan = ['slow-2500', 'ok']; const st = [], t0 = Date.now(); const n0 = window.__calls.length; gCall({sys:'x', parts:[{text:'MODE: talk'}]}, s => st.push(s), (r, m) => res({ok:true, m, ms: Date.now() - t0, st, models: window.__calls.slice(n0).filter(c => c.kind==='gen').map(c => c.model)}), (why, kind) => res({ok:false, why, st})); })")
@@ -925,6 +945,37 @@ def s25(b):
     click(pg, "mine"); pg.wait_for_function("XI.audio && XI.audio.currentTime > 0", timeout=5000)
     t.check("s25 대화 대답 재생됨", ev(pg, "!XI.audio.paused"))
     bad = handlers_ok(pg); t.check("s25 처리기·오류 없음", bad == [] and not real(errs), [bad, real(errs)]); ctx.close()
+
+def s26(b):
+    print("\n== s26 채점이 끝나면 화면 맨 위에 알림 ==")
+    ctx, pg, errs = page(b); set_key(pg); ev(pg, "localStorage.setItem('ec_nopre','1')")
+    on = "(function(){ var e=document.getElementById('ecToast'); return !!(e && e.classList.contains('on')); })()"
+    def top(): return ev(pg, "document.getElementById('ecToast').getBoundingClientRect().top")
+    ev(pg, "startDr()"); ev(pg, "window.__fillBatch(); window.__mock.plan=['slow','slow','slow','slow','slow','slow']"); click(pg, "bNext")
+    click(pg, "tab", "phr"); ev(pg, "window.scrollTo(0, 2000)"); pg.wait_for_timeout(100)
+    t.check("s26 채점 중 알림 없음", not ev(pg, on))
+    pg.wait_for_function(on, timeout=40000); pg.wait_for_timeout(400)
+    t.check("s26 다른 탭을 아래로 내려 보고 있어도 화면 맨 위에 「채점이 끝났습니다 · 보기」", ev(pg, "window.scrollY") > 0 and 0 <= top() < 60 and "채점이 끝났습니다" in ev(pg, "document.getElementById('ecToast').innerText") and "보기" in ev(pg, "document.getElementById('ecToast').innerText"), [ev(pg, "window.scrollY"), top()])
+    shot(pg, "p50_toast"); view(pg, "p50_toast_view")
+    pg.click("#ecToast [data-act=toastGo]"); pg.wait_for_timeout(400)
+    t.check("s26 알림을 누르면 결과 화면으로 가고 알림은 사라짐", ev(pg, "window.__ec.U.tab") == "train" and ev(pg, "window.__ec.A.phase") == "done" and not ev(pg, on) and not has(pg, "flash"))
+    # 훈련 화면에서 끝나면 「보기」 없이 잠깐, ✕로 닫기
+    ev(pg, "window.__ec.A = null; startDr()"); ev(pg, "window.__fillBatch(); window.__mock.plan=['slow','slow','slow','slow','slow','slow']"); click(pg, "bNext")
+    pg.wait_for_function(on, timeout=40000)
+    t.check("s26 훈련 화면에서 끝나도 맨 위 알림(보기 단추 없이)", "보기" not in ev(pg, "document.getElementById('ecToast').innerText") and "채점이 끝났습니다" in ev(pg, "document.getElementById('ecToast').innerText"))
+    pg.click("#ecToast [data-act=toastX]"); pg.wait_for_timeout(300); t.check("s26 ✕로 닫힘", not ev(pg, on))
+    # 다른 앱에 가 있다가 돌아오면
+    ev(pg, "(function(){ Object.defineProperty(document, 'hidden', { configurable: true, get: function(){ return true; } }); toast('대화: 선생님 답이 왔습니다.'); })()"); pg.wait_for_timeout(300)
+    t.check("s26 다른 앱에 가 있을 때는 띄우지 않고 기다림", not ev(pg, on))
+    ev(pg, "(function(){ Object.defineProperty(document, 'hidden', { configurable: true, get: function(){ return false; } }); document.dispatchEvent(new Event('visibilitychange')); })()")
+    pg.wait_for_function(on, timeout=3000)
+    t.check("s26 돌아오면 알림이 뜸", "선생님 답이 왔습니다" in ev(pg, "document.getElementById('ecToast').innerText"))
+    # 멈춤도 알림
+    pg.click("#ecToast [data-act=toastX]"); ev(pg, "window.__ec.A = null; startDr()"); ev(pg, "window.__fillBatch(); window.__mock.plan=Array(30).fill('net')"); click(pg, "bNext"); click(pg, "tab", "home")
+    pg.wait_for_function(on, timeout=60000)
+    t.check("s26 채점이 멈추면 주황 알림", "멈췄습니다" in ev(pg, "document.getElementById('ecToast').innerText") and ev(pg, "document.getElementById('ecToast').classList.contains('err')"))
+    pg.wait_for_function("!" + on, timeout=15000); t.check("s26 알림은 잠시 뒤 저절로 사라짐", True)
+    bad = handlers_ok(pg); t.check("s26 처리기·오류 없음", bad == [] and not real(errs), [bad, real(errs)]); ctx.close()
 
 def s14(b):
     print("\n== s14 채점 중 안내 ==")

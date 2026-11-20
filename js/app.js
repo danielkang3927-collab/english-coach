@@ -58,11 +58,13 @@ function render() {
   $("ecNav").innerHTML = TABS.map(t => '<button class="ec-navb" data-act="tab" data-arg="' + t[0] + '" aria-current="' + (U.tab === t[0] ? "page" : "false") + '">' + t[1] + (t[0] === "train" && A ? '<i class="ec-dot"></i>' : "") + '</button>').join("");
   $("ecWarn").innerHTML = (DB.saveFail ? '<div class="ec-msg err">이 기기의 저장 공간이 부족하거나 저장이 막혀 있습니다. 「기록」에서 백업을 내려받아 주세요.</div>' : "") +
     (AUTH.uid && SYNC.err && !SYNC.busy && U.tab !== "set" ? '<div class="ec-msg err">구글 저장이 잠시 멈췄습니다. 기록은 이 기기에 그대로 있습니다. 「설정」에서 확인해 주세요.</div>' : "") +
+    updBar() +
     (U.flash ? '<button class="ec-flash" data-act="flash">' + esc(U.flash.text) + ' <b>보기 →</b></button>' : "");
   keepAwake(REC.on || !!(A && A.phase === "sending"));
 }
 function go(tab) {
   navPush(tab);
+  if (UPD && UPD.want > BUILD && tab !== "train") setTimeout(updGo, 600);   /* 결과를 보고 다른 화면으로 넘어가면 그때 새 판으로 */
   U.tab = tab; U.note = (tab === "train" && A && A.phase === "fail" && A.failMsg) ? { text: A.failMsg, err: true } : ((tab === "train" && A && A.phase === "sending" && A.prog) ? { text: A.prog } : null);
   if (tab === "train") U.flash = null;
   render(); window.scrollTo(0, 0);
@@ -72,9 +74,29 @@ function go(tab) {
 const hasPend = a => !!a && (a.type === "talk" || a.type === "retell" ? !!a.pend : hasWork(a));
 function pendSave() { if (hasPend(A)) idbSet("pend", { t: Date.now(), a: A }); else idbDel("pend"); }
 /* 채점이 끝났을 때: 훈련 화면을 보고 있으면 true, 다른 화면이면 알림을 띄우고 false */
+/* 채점이 끝나거나 멈추면, 지금 보고 있는 화면 맨 위에 잠깐 알림을 띄운다(스크롤 위치와 상관없이 보이도록 화면에 고정).
+   다른 앱에 가 있으면 돌아왔을 때 띄운다. 누르면 결과로 간다. */
+const TOAST = { text: "", err: false, wait: false, timer: 0 };
+function toast(text, err) {
+  TOAST.text = text; TOAST.err = !!err;
+  if (document.hidden) { TOAST.wait = true; return; }
+  TOAST.wait = false; toastShow();
+}
+function toastShow() {
+  let el = document.getElementById("ecToast");
+  if (!el) { el = document.createElement("div"); el.id = "ecToast"; el.className = "ec-toast"; el.setAttribute("role", "status"); el.setAttribute("aria-live", "polite"); document.body.appendChild(el); }
+  const onTrain = U.tab === "train";
+  el.innerHTML = '<button class="ec-toast-go" data-act="toastGo">' + (TOAST.err ? "⚠ " : "✓ ") + esc(TOAST.text) + (onTrain ? "" : ' <b>보기 →</b>') + '</button><button class="ec-toast-x" data-act="toastX" aria-label="알림 닫기">✕</button>';
+  el.classList.toggle("err", TOAST.err);
+  void el.offsetWidth; el.classList.add("on");
+  clearTimeout(TOAST.timer); TOAST.timer = setTimeout(toastHide, onTrain ? 5000 : 10000);
+}
+function toastHide() { clearTimeout(TOAST.timer); const el = document.getElementById("ecToast"); if (el) el.classList.remove("on"); }
+document.addEventListener("visibilitychange", () => { if (!document.hidden && TOAST.wait) { TOAST.wait = false; setTimeout(toastShow, 300); } });
 function arrived(text) { pendSave(); if (A) A.autoTried = false;
   /* 보고 있지 않을 때 끝난 결과는 표시를 남겨, 화면이 닫혔다 열려도 기록에서 바로 보이게 한다 */
   if (document.hidden || U.tab !== "train") { const last = DB.log[DB.log.length - 1]; if (last) store.set("ec_unseen", last.id); } else store.del("ec_unseen");
+  toast(text, false);
   if (U.tab !== "train") { U.flash = { text }; render(); return false; } U.note = null; render(); return true; }
 function failed(me, why, kind) {
   me.phase = "fail"; me.failMsg = why; me.failKind = kind || "other"; me.autoAt = 0;
@@ -83,6 +105,7 @@ function failed(me, why, kind) {
     if (soon && soon - t <= 150000 && (me.autoWaitN || 0) < 3) { me.autoWaitN = (me.autoWaitN || 0) + 1; me.autoAt = soon + 2000; why = me.failMsg = waitText(me); }
   }
   pendSave();
+  toast(me.title + (me.autoAt ? ": 잠시 기다렸다가 스스로 다시 보냅니다." : ": 채점이 멈췄습니다."), true);
   if (U.tab !== "train") { U.flash = { text: me.title + ": 채점이 멈췄습니다." }; render(); } else { render(); setMsg(why, true); }
 }
 function resumeSend() { if (!A) return; if (A.type === "batch") batchSend(); else if (A.type === "talk") talkSend(); else if (A.type === "retell") retellSend(); else if (A.type === "test") testSend(); }
@@ -384,7 +407,7 @@ function hasWork(a) {
   if (a.type === "test") return a.phase !== "done" && a.phase !== "intro" && a.tasks.some(t => t.clip);
   return false;
 }
-function endAct() { recAbort(); speakStop(); A = null; U.note = null; U.flash = null; pendSave(); render(); window.scrollTo(0, 0); }
+function endAct() { recAbort(); speakStop(); A = null; U.note = null; U.flash = null; pendSave(); render(); window.scrollTo(0, 0); if (UPD && UPD.want > BUILD) setTimeout(updGo, 600); }
 function nextBtn() { const ns = nextStep(); return ns ? btn("다음 단계: " + STEP_NAME[ns], "start", ns) : '<div class="ec-msg">오늘 루틴을 모두 마쳤습니다.</div>'; }
 function drawStage() {
   let h = '<div class="ec-row between ec-stagehead">' + btn("← 목록", "quit", null, "ghost small") + '<b>' + esc(A.title) + '</b></div>';
@@ -1168,6 +1191,9 @@ const ACT = {
     if (m.kind === "listen") { U.lisTopic = m.topic; U.lisMission = m.id; go("train"); ACT.lisNew(); return; }
     if (m.kind === "batch") { const it = m.items.map((x, i) => ({ ref: "mis:" + m.id + ":" + i, task: "shadow", ko: x.ko, en: x.en, focus: "" })).concat(m.items.map((x, i) => ({ ref: "mis:" + m.id + ":" + i, task: "recall", ko: x.ko, en: x.en, focus: "" })));
       startBatch("phr", it, "미션 · " + m.t, null); if (A) { A.again = true; A.mission = m.id; } } },
+  updNow: () => updNow(),
+  toastGo: () => { toastHide(); U.flash = null; if (U.tab === "train") window.scrollTo(0, 0); else go("train"); },
+  toastX: () => toastHide(),
   flash: () => { U.flash = null; go("train"); },
   /* 구글 로그인 */
   gateSkip: () => { store.set("ec_gateskip", "1"); U.smsg = null; go("home"); },
@@ -1238,8 +1264,18 @@ window.addEventListener("pagehide", daySave);
 /* ---------- 시작 ---------- */
 const MIGRATED = dbLoad();
 gLoad(); authLoad(); /* ---------- 새 판이 올라오면 저절로 바꿔 탄다. 녹음·채점 중에는 기다렸다가 끝난 뒤에 한다. ---------- */
-const UPD = { want: 0, last: 0 };
-function updIdle() { return !A && !REC.on && !ttsPlaying() && !(A && (A.phase === "sending" || hasWork(A))) && !(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)); }
+var UPD = { want: 0, last: 0 };
+/* 하던 활동이 결과까지 끝났고(채점 결과·대화 마침 화면) 그 화면을 보고 있지 않으면, 새 판으로 바꿔도 잃는 것이 없다(결과는 기록에 있다). */
+function updActOk() { if (U.flash || store.get("ec_unseen")) return false;   /* 아직 보지 않은 결과가 있으면 기다린다 */
+  return !A || ((A.phase === "done" || A.phase === "end") && U.tab !== "train"); }
+/* 「지금 바꾸기」를 눌러도 되는 때: 녹음·채점 보내는 중이 아니고, 이어 가는 대화(되살릴 수 없음)가 없을 때. 모아 둔 녹음은 저장했다가 새 판에서 되살린다. */
+function updSafeNow() { return !REC.on && !(A && A.phase === "sending") && !(A && A.type === "talk" && A.turns.length && A.phase !== "end" && !A.pend); }
+function updBar() {
+  if (!UPD || !UPD.want || UPD.want <= BUILD) return "";
+  return '<div class="ec-updbar"><span>새 버전이 나왔습니다. ' + (updSafeNow() ? "지금 바꾸거나, 하던 것을 마치면 저절로 바뀝니다." : "녹음·채점이 끝나면 저절로 바뀝니다.") + '</span>' + (updSafeNow() ? btn("지금 바꾸기", "updNow", null, "small") : "") + '</div>';
+}
+function updNow() { if (!updSafeNow()) return; try { sessionStorage.removeItem("ec_upd"); } catch (e) {} if (A) pendSave(); speakStop(); dbSave("day"); setTimeout(() => { try { sessionStorage.setItem("ec_upd", String(UPD.want)); } catch (e) {} location.replace(location.pathname + "?v=" + UPD.want); }, 150); }
+function updIdle() { return updActOk() && !REC.on && !ttsPlaying() && !(A && (A.phase === "sending" || hasPend(A))) && !(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)); }
 function updGo() {
   if (!UPD.want || UPD.want <= BUILD || !updIdle()) return false;
   let did = ""; try { did = sessionStorage.getItem("ec_upd") || ""; } catch (e) {}
@@ -1250,9 +1286,11 @@ function updGo() {
 function updCheck() {
   if (Date.now() - UPD.last < 60000) { updGo(); return Promise.resolve(false); }
   UPD.last = Date.now();
-  return fetch("version.json?t=" + Date.now(), { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(j => { const n = j && +j.build; if (n > BUILD) { UPD.want = n; return updGo(); } return false; }, () => false);
+  return fetch("version.json?t=" + Date.now(), { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(j => { const n = j && +j.build; if (n > BUILD) { const was = UPD.want; UPD.want = n; if (updGo()) return true; if (was !== n) render(); return false; } return false; }, () => false);
 }
-xiLoad(); setTimeout(updCheck, 3000); setInterval(updCheck, 5 * 60000); document.addEventListener("visibilitychange", () => { if (!document.hidden) updCheck(); });
+(function () { let did = "", shown = ""; try { did = sessionStorage.getItem("ec_upd") || ""; shown = sessionStorage.getItem("ec_updshown") || ""; } catch (e) {}
+  if (did === String(BUILD) && shown !== did) { try { sessionStorage.setItem("ec_updshown", did); } catch (e) {} setTimeout(() => toast("새 버전으로 바꿨습니다 — " + ((D.CHANGELOG[0] && D.CHANGELOG[0][0] === BUILD) ? D.CHANGELOG[0][2].split(/[:(.]/)[0] : "판 " + BUILD), false), 900); } })();
+xiLoad(); setTimeout(updCheck, 3000); setInterval(updCheck, 2 * 60000); document.addEventListener("visibilitychange", () => { if (!document.hidden) updCheck(); });
 SYNC.onKeys = got => { if (got.indexOf("g") >= 0) { U.f.gkey = G.key; U.remember = true; } U.keyMsg = "계정에 저장해 둔 이용 키를 이 기기에 넣었습니다."; }; xiEnsurePool().then(ok => { if (ok && U.tab === "set") render(); }); document.addEventListener("pointerdown", () => { xiUnlock(); }, true);
 U.f.gkey = G.key; U.remember = G.key ? !!store.get("ec_gkey") : true; U.scene = today() % 6;
 G.onChain = () => { if (U.tab === "set") render(); };

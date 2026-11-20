@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="ec-build" content="43">
+<meta name="ec-build" content="44">
 <title>영어 말하기 코치</title>
-<link rel="icon" type="image/png" href="icons/icon-192.png?v=43">
-<link rel="apple-touch-icon" href="icons/icon-180.png?v=43">
-<link rel="manifest" href="manifest.json?v=43">
+<link rel="icon" type="image/png" href="icons/icon-192.png?v=44">
+<link rel="apple-touch-icon" href="icons/icon-180.png?v=44">
+<link rel="manifest" href="manifest.json?v=44">
 <meta name="apple-mobile-web-app-title" content="영어 코치">
 <style>
 :root{
@@ -143,6 +143,13 @@ label{display:block;font-size:14px;color:var(--sub);margin:10px 0 4px}
 .ec-opt.right{border-color:var(--good);color:var(--good);font-weight:700} .ec-opt.wrong{border-color:var(--bad);color:var(--bad)} .ec-opt:disabled{opacity:1}
 .ec-t tr.ec-cur td{font-weight:700;color:var(--brand)}
 .ec-task small.ec-hintmask{display:block;margin-top:6px;font-size:15px;letter-spacing:.5px;color:var(--sub)}
+.ec-updbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px;padding:10px 12px;border-radius:11px;border:1px dashed var(--brand);background:var(--chip);font-size:14px}
+.ec-toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 10px);transform:translate(-50%,-160%);transition:transform .25s ease;z-index:90;width:min(94vw,520px);display:flex;align-items:stretch;background:var(--card,#fff);border:2px solid var(--brand);border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.ec-toast.on{transform:translate(-50%,0)}
+.ec-toast.err{border-color:#d9822b}
+.ec-toast-go{flex:1;text-align:left;background:none;border:0;color:var(--ink);font:inherit;font-size:16px;font-weight:600;padding:13px 6px 13px 14px;cursor:pointer}
+.ec-toast-go b{color:var(--brand);white-space:nowrap}
+.ec-toast-x{background:none;border:0;color:var(--sub);font-size:18px;padding:0 14px;cursor:pointer}
 .ec-minebox{display:inline-flex;gap:8px;flex-wrap:wrap}
 .ec-keyhow{margin:8px 0 12px;border:1px solid var(--line);border-radius:10px;padding:10px 12px} .ec-keyhow summary{font-weight:700;cursor:pointer} .ec-keyhow ol{margin:10px 0 6px;padding-left:20px} .ec-keyhow li{margin:7px 0;line-height:1.5}
 .ec-msg.ec-cheer{margin-top:0;font-weight:600}
@@ -198,9 +205,9 @@ table.ec-t th{color:var(--sub);font-weight:400;font-size:13px}
   <button data-act="bottom" aria-label="맨 아래로">▼</button>
 </div>
 <nav class="ec-nav" id="ecNav" aria-label="화면 이동"></nav>
-<script src="js/data.js?v=43"></script>
-<script src="js/core.js?v=43"></script>
-<script src="js/sync.js?v=43"></script>
-<script src="js/app.js?v=43"></script>
+<script src="js/data.js?v=44"></script>
+<script src="js/core.js?v=44"></script>
+<script src="js/sync.js?v=44"></script>
+<script src="js/app.js?v=44"></script>
 </body>
 </html>
